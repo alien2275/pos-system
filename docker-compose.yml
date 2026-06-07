@@ -1,0 +1,40 @@
+services:
+  postgres:
+    image: postgres:17
+    container_name: pos-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: pos
+      POSTGRES_USER: Alien2275
+      POSTGRES_PASSWORD: Ak8pch1001a
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  adminer:
+    image: adminer:latest
+    container_name: pos-adminer
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    depends_on:
+      - postgres
+
+  backend:
+    build:
+      context: ./backend
+    container_name: pos-backend
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: pos
+      POSTGRES_USER: Alien2275
+      POSTGRES_PASSWORD: Ak8pch1001a
+      POSTGRES_HOST: postgres
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres
+
+volumes:
+  postgres_data:
