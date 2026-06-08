@@ -219,6 +219,42 @@ def get_products_by_category(category: str):
             dict(row._mapping)
             for row in result
         ]
+    
+
+@app.get("/dashboard")
+def get_dashboard():
+    with engine.connect() as conn:
+        product_summary = conn.execute(
+            text(
+                """
+                SELECT
+                    COUNT(*) AS product_count,
+                    COUNT(*) FILTER (
+                        WHERE is_active = TRUE
+                          AND reorder_level > 0
+                          AND quantity_on_hand <= reorder_level
+                    ) AS low_stock_count
+                FROM products;
+                """
+            )
+        ).first()
+
+        sales_summary = conn.execute(
+            text(
+                """
+                SELECT
+                    COUNT(*) AS today_sale_count,
+                    COALESCE(SUM(total_cents), 0) AS today_revenue_cents
+                FROM sales
+                WHERE created_at::date = CURRENT_DATE;
+                """
+            )
+        ).first()
+
+    return {
+        "products": dict(product_summary._mapping),
+        "sales": dict(sales_summary._mapping),
+    }
 
 
 @app.get("/inventory/history/{product_id}")
