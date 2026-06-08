@@ -1,5 +1,5 @@
 import os
-from typing import Optional
+from typing import Literal, Optional, List
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
@@ -39,12 +39,29 @@ class ProductUpdate(BaseModel):
     quantity_on_hand: Optional[int] = None
     is_active: Optional[bool] = None
 
+
 class InventoryAdjustment(BaseModel):
     product_id: int
     quantity_change: int
-    reason: str
+    reason: Literal[
+        "Shipment",
+        "Sale",
+        "Return",
+        "Damage",
+        "Adjustment",
+        "Transfer"
+    ]
     notes: Optional[str] = None
 
+
+class SaleItemCreate(BaseModel):
+    product_id: int
+    quantity: int
+
+
+class SaleCreate(BaseModel):
+    items: List[SaleItemCreate]
+    
 
 @app.get("/")
 def root():
@@ -310,6 +327,156 @@ def update_product(product_id: int, product: ProductUpdate):
         )
 
     return dict(result._mapping)
+
+
+@app.post("/sales")
+def create_sale(sale: SaleCreate):
+    if not sale.items:
+        raise HTTPException(status_code=400, detail="Sale must contain at least one item")
+
+    with engine.begin() as conn:
+        total_cents = 0
+        sale_items_data = []
+
+        for item in sale.items:
+            product = conn.execute(
+                text("SELECT * FROM products WHERE id = :id;"),
+                {"id": item.product_id},
+            ).first()
+
+            if product is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Product {item.product_id} not found"
+                )
+
+            product_data = dict(product._mapping)
+
+            if item.quantity <= 0:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Quantity must be greater than zero"
+                )
+
+            if product_data["quantity_on_hand"] < item.quantity:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Not enough inventory for {product_data['name']}"
+                )
+
+            line_total = product_data["price_cents"] * item.quantity
+            total_cents += line_total
+
+            sale_items_data.append({
+                "product_id": item.product_id,
+                "quantity": item.quantity,
+                "price_cents": product_data["price_cents"],
+                "name": product_data["name"],
+            })
+
+        sale_row = conn.execute(
+            text(
+                """
+                INSERT INTO sales (total_cents)
+                VALUES (:total_cents)
+                RETURNING *;
+                """
+            ),
+            {"total_cents": total_cents},
+        ).first()
+
+        sale_id = sale_row._mapping["id"]
+
+        for item in sale_items_data:
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO sale_items
+                    (sale_id, product_id, quantity, price_cents)
+                    VALUES
+                    (:sale_id, :product_id, :quantity, :price_cents);
+                    """
+                ),
+                {
+                    "sale_id": sale_id,
+                    "product_id": item["product_id"],
+                    "quantity": item["quantity"],
+                    "price_cents": item["price_cents"],
+                },
+            )
+
+            conn.execute(
+                text(
+                    """
+                    UPDATE products
+                    SET quantity_on_hand = quantity_on_hand - :quantity,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = :product_id;
+                    """
+                ),
+                {
+                    "quantity": item["quantity"],
+                    "product_id": item["product_id"],
+                },
+            )
+
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO inventory_transactions
+                    (product_id, quantity_change, reason, notes)
+                    VALUES
+                    (:product_id, :quantity_change, 'Sale', :notes);
+                    """
+                ),
+                {
+                    "product_id": item["product_id"],
+                    "quantity_change": -item["quantity"],
+                    "notes": f"Sale #{sale_id}",
+                },
+            )
+
+    return {
+        "id": sale_id,
+        "total_cents": total_cents,
+        "items": sale_items_data,
+    }
+
+
+@app.get("/sales/{sale_id}")
+def get_sale(sale_id: int):
+    with engine.connect() as conn:
+        sale = conn.execute(
+            text("SELECT * FROM sales WHERE id = :id;"),
+            {"id": sale_id},
+        ).first()
+
+        if sale is None:
+            raise HTTPException(status_code=404, detail="Sale not found")
+
+        items = conn.execute(
+            text(
+                """
+                SELECT
+                    sale_items.id,
+                    sale_items.sale_id,
+                    sale_items.product_id,
+                    products.name,
+                    sale_items.quantity,
+                    sale_items.price_cents
+                FROM sale_items
+                JOIN products ON products.id = sale_items.product_id
+                WHERE sale_items.sale_id = :sale_id
+                ORDER BY sale_items.id;
+                """
+            ),
+            {"sale_id": sale_id},
+        )
+
+        return {
+            "sale": dict(sale._mapping),
+            "items": [dict(row._mapping) for row in items],
+        }
 
 
 @app.delete("/products/{product_id}")
