@@ -26,6 +26,7 @@ class ProductCreate(BaseModel):
     price_cents: int = 0
     cost_cents: int = 0
     quantity_on_hand: int = 0
+    reorder_level: int = 0
 
 
 class ProductUpdate(BaseModel):
@@ -37,6 +38,7 @@ class ProductUpdate(BaseModel):
     price_cents: Optional[int] = None
     cost_cents: Optional[int] = None
     quantity_on_hand: Optional[int] = None
+    reorder_level: Optional[int] = None
     is_active: Optional[bool] = None
 
 
@@ -278,9 +280,9 @@ def create_product(product: ProductCreate):
             text(
                 """
                 INSERT INTO products
-                (sku, barcode, name, category, description, price_cents, cost_cents, quantity_on_hand)
+                (sku, barcode, name, category, description, price_cents, cost_cents, quantity_on_hand, reorder_level)
                 VALUES
-                (:sku, :barcode, :name, :category, :description, :price_cents, :cost_cents, :quantity_on_hand)
+                (:sku, :barcode, :name, :category, :description, :price_cents, :cost_cents, :quantity_on_hand, :reorder_level)
                 RETURNING *;
                 """
             ),
@@ -477,6 +479,25 @@ def get_sale(sale_id: int):
             "sale": dict(sale._mapping),
             "items": [dict(row._mapping) for row in items],
         }
+    
+
+@app.get("/inventory/low-stock")
+def get_low_stock_products():
+    with engine.connect() as conn:
+        result = conn.execute(
+            text(
+                """
+                SELECT *
+                FROM products
+                WHERE is_active = TRUE
+                  AND reorder_level > 0
+                  AND quantity_on_hand <= reorder_level
+                ORDER BY quantity_on_hand ASC, name ASC;
+                """
+            )
+        )
+
+        return [dict(row._mapping) for row in result]
 
 
 @app.delete("/products/{product_id}")
