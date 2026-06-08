@@ -182,6 +182,45 @@ def get_product_by_id(product_id: int):
     return dict(result._mapping)
 
 
+@app.get("/categories")
+def get_categories():
+    with engine.connect() as conn:
+        result = conn.execute(
+            text(
+                """
+                SELECT DISTINCT category
+                FROM products
+                WHERE category IS NOT NULL
+                  AND category <> ''
+                ORDER BY category;
+                """
+            )
+        )
+
+        return [row[0] for row in result]
+    
+
+@app.get("/products/category/{category}")
+def get_products_by_category(category: str):
+    with engine.connect() as conn:
+        result = conn.execute(
+            text(
+                """
+                SELECT *
+                FROM products
+                WHERE category = :category
+                ORDER BY name;
+                """
+            ),
+            {"category": category},
+        )
+
+        return [
+            dict(row._mapping)
+            for row in result
+        ]
+
+
 @app.get("/inventory/history/{product_id}")
 def get_inventory_history(product_id: int):
     with engine.connect() as conn:
@@ -201,6 +240,61 @@ def get_inventory_history(product_id: int):
             dict(row._mapping)
             for row in result
         ]
+    
+    
+@app.get("/sales/{sale_id}")
+def get_sale(sale_id: int):
+    with engine.connect() as conn:
+        sale = conn.execute(
+            text("SELECT * FROM sales WHERE id = :id;"),
+            {"id": sale_id},
+        ).first()
+
+        if sale is None:
+            raise HTTPException(status_code=404, detail="Sale not found")
+
+        items = conn.execute(
+            text(
+                """
+                SELECT
+                    sale_items.id,
+                    sale_items.sale_id,
+                    sale_items.product_id,
+                    products.name,
+                    sale_items.quantity,
+                    sale_items.price_cents
+                FROM sale_items
+                JOIN products ON products.id = sale_items.product_id
+                WHERE sale_items.sale_id = :sale_id
+                ORDER BY sale_items.id;
+                """
+            ),
+            {"sale_id": sale_id},
+        )
+
+        return {
+            "sale": dict(sale._mapping),
+            "items": [dict(row._mapping) for row in items],
+        }
+    
+
+@app.get("/inventory/low-stock")
+def get_low_stock_products():
+    with engine.connect() as conn:
+        result = conn.execute(
+            text(
+                """
+                SELECT *
+                FROM products
+                WHERE is_active = TRUE
+                  AND reorder_level > 0
+                  AND quantity_on_hand <= reorder_level
+                ORDER BY quantity_on_hand ASC, name ASC;
+                """
+            )
+        )
+
+        return [dict(row._mapping) for row in result]
     
 
 @app.post("/inventory/adjust")
@@ -444,60 +538,6 @@ def create_sale(sale: SaleCreate):
         "items": sale_items_data,
     }
 
-
-@app.get("/sales/{sale_id}")
-def get_sale(sale_id: int):
-    with engine.connect() as conn:
-        sale = conn.execute(
-            text("SELECT * FROM sales WHERE id = :id;"),
-            {"id": sale_id},
-        ).first()
-
-        if sale is None:
-            raise HTTPException(status_code=404, detail="Sale not found")
-
-        items = conn.execute(
-            text(
-                """
-                SELECT
-                    sale_items.id,
-                    sale_items.sale_id,
-                    sale_items.product_id,
-                    products.name,
-                    sale_items.quantity,
-                    sale_items.price_cents
-                FROM sale_items
-                JOIN products ON products.id = sale_items.product_id
-                WHERE sale_items.sale_id = :sale_id
-                ORDER BY sale_items.id;
-                """
-            ),
-            {"sale_id": sale_id},
-        )
-
-        return {
-            "sale": dict(sale._mapping),
-            "items": [dict(row._mapping) for row in items],
-        }
-    
-
-@app.get("/inventory/low-stock")
-def get_low_stock_products():
-    with engine.connect() as conn:
-        result = conn.execute(
-            text(
-                """
-                SELECT *
-                FROM products
-                WHERE is_active = TRUE
-                  AND reorder_level > 0
-                  AND quantity_on_hand <= reorder_level
-                ORDER BY quantity_on_hand ASC, name ASC;
-                """
-            )
-        )
-
-        return [dict(row._mapping) for row in result]
 
 
 @app.delete("/products/{product_id}")
