@@ -241,6 +241,54 @@ def get_inventory_history(product_id: int):
             for row in result
         ]
     
+
+@app.get("/sales")
+def get_sales():
+    with engine.connect() as conn:
+        result = conn.execute(
+            text(
+                """
+                SELECT *
+                FROM sales
+                ORDER BY created_at DESC;
+                """
+            )
+        )
+
+        return [dict(row._mapping) for row in result]
+    
+
+@app.get("/sales/today")
+def get_today_sales():
+    with engine.connect() as conn:
+        sales = conn.execute(
+            text(
+                """
+                SELECT *
+                FROM sales
+                WHERE created_at::date = CURRENT_DATE
+                ORDER BY created_at DESC;
+                """
+            )
+        )
+
+        summary = conn.execute(
+            text(
+                """
+                SELECT
+                    COUNT(*) AS sale_count,
+                    COALESCE(SUM(total_cents), 0) AS total_cents
+                FROM sales
+                WHERE created_at::date = CURRENT_DATE;
+                """
+            )
+        ).first()
+
+        return {
+            "summary": dict(summary._mapping),
+            "sales": [dict(row._mapping) for row in sales],
+        }
+    
     
 @app.get("/sales/{sale_id}")
 def get_sale(sale_id: int):
