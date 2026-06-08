@@ -4,8 +4,20 @@ from typing import Literal, Optional, List
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import create_engine, text
+from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(title="POS API")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://100.85.171.19:5173",
+        "http://localhost:5173",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 DB_USER = os.getenv("POSTGRES_USER")
 DB_PASSWORD = os.getenv("POSTGRES_PASSWORD")
