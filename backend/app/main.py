@@ -89,7 +89,14 @@ def root():
 def get_products():
     with engine.connect() as conn:
         result = conn.execute(
-            text("SELECT * FROM products ORDER BY id;")
+            text(
+                """
+                SELECT *
+                FROM products
+                WHERE is_active = TRUE
+                ORDER BY id;
+                """
+            )
         )
 
         return [
@@ -123,6 +130,31 @@ def search_products(query: str):
             dict(row._mapping)
             for row in result
         ]
+    
+
+@app.get("/products/inactive-match")
+def get_inactive_product_match(sku: str = "", barcode: str = ""):
+    with engine.connect() as conn:
+        result = conn.execute(
+            text(
+                """
+                SELECT *
+                FROM products
+                WHERE is_active = FALSE
+                  AND (
+                    (:sku <> '' AND sku = :sku)
+                    OR (:barcode <> '' AND barcode = :barcode)
+                  )
+                LIMIT 1;
+                """
+            ),
+            {"sku": sku, "barcode": barcode},
+        ).first()
+
+    if result is None:
+        raise HTTPException(status_code=404, detail="No inactive product found")
+
+    return dict(result._mapping)
 
 
 @app.get("/products/barcode/{barcode}")
@@ -642,7 +674,9 @@ def delete_product(product_id: int):
         result = conn.execute(
             text(
                 """
-                DELETE FROM products
+                UPDATE products
+                SET is_active = FALSE,
+                    updated_at = CURRENT_TIMESTAMP
                 WHERE id = :id
                 RETURNING *;
                 """
@@ -651,12 +685,6 @@ def delete_product(product_id: int):
         ).first()
 
     if result is None:
-        raise HTTPException(
-            status_code=404,
-            detail="Product not found"
-        )
+        raise HTTPException(status_code=404, detail="Product not found")
 
-    return {
-        "deleted": True,
-        "product": dict(result._mapping)
-    }
+    return {"deleted": True, "product": dict(result._mapping)}

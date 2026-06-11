@@ -1,33 +1,19 @@
-import { useEffect, useState } from "react";
+import { Link, Route, Routes } from "react-router-dom";
+import Dashboard from "./pages/Dashboard";
+import Products from "./pages/Products";
 
 function App() {
-  const [dashboard, setDashboard] = useState(null);
-
-  useEffect(() => {
-    fetch("http://100.85.171.19:8000/dashboard")
-      .then((res) => res.json())
-      .then((data) => setDashboard(data))
-      .catch((err) => console.error(err));
-  }, []);
-
-  if (!dashboard) {
-    return <h1>Loading...</h1>;
-  }
-
   return (
-    <div style={{ padding: "2rem" }}>
-      <h1>POS Dashboard</h1>
+    <div style={{ padding: "2rem", fontFamily: "Arial, sans-serif" }}>
+      <nav style={{ marginBottom: "2rem" }}>
+        <Link to="/" style={{ marginRight: "1rem" }}>Dashboard</Link>
+        <Link to="/products">Products</Link>
+      </nav>
 
-      <h2>Products</h2>
-      <p>Total Products: {dashboard.products.product_count}</p>
-      <p>Low Stock: {dashboard.products.low_stock_count}</p>
-
-      <h2>Sales Today</h2>
-      <p>Transactions: {dashboard.sales.today_sale_count}</p>
-      <p>
-        Revenue: $
-        {(dashboard.sales.today_revenue_cents / 100).toFixed(2)}
-      </p>
+      <Routes>
+        <Route path="/" element={<Dashboard />} />
+        <Route path="/products" element={<Products />} />
+      </Routes>
     </div>
   );
 }
