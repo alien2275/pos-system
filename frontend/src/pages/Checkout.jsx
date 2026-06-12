@@ -177,7 +177,7 @@ function Checkout() {
           }}
         >
           <h3 style={{ textAlign: "center" }}>
-            Sammyinthesky
+            sammyinthesky
           </h3>
 
           <p style={{ textAlign: "center" }}>
