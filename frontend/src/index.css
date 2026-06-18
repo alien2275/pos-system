@@ -109,3 +109,44 @@ code {
   padding: 4px 8px;
   background: var(--code-bg);
 }
+@media print {
+  nav,
+  h1,
+  form,
+  .no-print,
+  button {
+    display: none !important;
+  }
+
+  .receipt {
+    display: block !important;
+    width: 58mm;
+    margin: 0;
+    padding: 0;
+    border: none !important;
+    color: black;
+    background: white;
+    font-size: 12px;
+  }
+
+  .receipt table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  .receipt th,
+  .receipt td {
+    font-size: 12px;
+    padding: 2px;
+  }
+
+  body {
+    margin: 0;
+    background: white;
+  }
+
+  @page {
+    size: 58mm auto;
+    margin: 2mm;
+  }
+}

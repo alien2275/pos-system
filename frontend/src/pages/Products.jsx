@@ -12,6 +12,9 @@ function Products() {
     name: "",
     category: "",
     description: "",
+    public_description: "",
+    image_url: "",
+    is_public: false,
     price_dollars: "",
     cost_dollars: "",
     quantity_on_hand: 0,
@@ -32,13 +35,16 @@ function Products() {
   }, []);
 
   function handleChange(event) {
-    const { name, value } = event.target;
+    const { name, value, type, checked } = event.target;
 
     setForm({
       ...form,
-      [name]: ["quantity_on_hand", "reorder_level"].includes(name)
-        ? Number(value)
-        : value,
+      [name]:
+        type === "checkbox"
+          ? checked
+          : ["quantity_on_hand", "reorder_level"].includes(name)
+          ? Number(value)
+          : value,
     });
   }
 
@@ -138,6 +144,9 @@ function Products() {
       name: product.name || "",
       category: product.category || "",
       description: product.description || "",
+      public_description: product.public_description || "",
+      image_url: product.image_url || "",
+      is_public: product.is_public || false,
       price_dollars: (product.price_cents / 100).toFixed(2),
       cost_dollars: (product.cost_cents / 100).toFixed(2),
       quantity_on_hand: product.quantity_on_hand,
@@ -215,6 +224,30 @@ function Products() {
           value={form.description}
           onChange={handleChange}
         />
+
+        <input
+          name="public_description"
+          placeholder="Public Store Description"
+          value={form.public_description}
+          onChange={handleChange}
+        />
+
+        <input
+          name="image_url"
+          placeholder="Image URL"
+          value={form.image_url}
+          onChange={handleChange}
+        />
+
+        <label>
+          <input
+            type="checkbox"
+            name="is_public"
+            checked={form.is_public}
+            onChange={handleChange}
+          />
+          Show In Store
+        </label>
 
         <input
           name="price_dollars"

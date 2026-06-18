@@ -39,6 +39,9 @@ class ProductCreate(BaseModel):
     cost_cents: int = 0
     quantity_on_hand: int = 0
     reorder_level: int = 0
+    image_url: Optional[str] = None
+    public_description: Optional[str] = None
+    is_public: bool = False
 
 
 class ProductUpdate(BaseModel):
@@ -52,6 +55,9 @@ class ProductUpdate(BaseModel):
     quantity_on_hand: Optional[int] = None
     reorder_level: Optional[int] = None
     is_active: Optional[bool] = None
+    image_url: Optional[str] = None
+    public_description: Optional[str] = None
+    is_public: Optional[bool] = None
 
 
 class InventoryAdjustment(BaseModel):
@@ -368,6 +374,47 @@ def get_today_sales():
             "summary": dict(summary._mapping),
             "sales": [dict(row._mapping) for row in sales],
         }
+
+@app.get("/sales/range")
+def get_sales_range(start_date: str, end_date: str):
+    with engine.connect() as conn:
+        sales = conn.execute(
+            text(
+                """
+                SELECT *
+                FROM sales
+                WHERE created_at >= :start_date
+                  AND created_at < (CAST(:end_date AS date) + INTERVAL '1 day')
+                ORDER BY created_at DESC;
+                """
+            ),
+            {
+                "start_date": start_date,
+                "end_date": end_date,
+            },
+        )
+
+        summary = conn.execute(
+            text(
+                """
+                SELECT
+                    COUNT(*) AS sale_count,
+                    COALESCE(SUM(total_cents), 0) AS total_cents
+                FROM sales
+                WHERE created_at >= :start_date
+                  AND created_at < (CAST(:end_date AS date) + INTERVAL '1 day');
+                """
+            ),
+            {
+                "start_date": start_date,
+                "end_date": end_date,
+            },
+        ).first()
+
+        return {
+            "summary": dict(summary._mapping),
+            "sales": [dict(row._mapping) for row in sales],
+        }
     
     
 @app.get("/sales/{sale_id}")
@@ -502,9 +549,35 @@ def create_product(product: ProductCreate):
             text(
                 """
                 INSERT INTO products
-                (sku, barcode, name, category, description, price_cents, cost_cents, quantity_on_hand, reorder_level)
+                (
+                    sku,
+                    barcode,
+                    name,
+                    category,
+                    description,
+                    price_cents,
+                    cost_cents,
+                    quantity_on_hand,
+                    reorder_level,
+                    image_url,
+                    public_description,
+                    is_public
+                )
                 VALUES
-                (:sku, :barcode, :name, :category, :description, :price_cents, :cost_cents, :quantity_on_hand, :reorder_level)
+                (
+                    :sku,
+                    :barcode,
+                    :name,
+                    :category,
+                    :description,
+                    :price_cents,
+                    :cost_cents,
+                    :quantity_on_hand,
+                    :reorder_level,
+                    :image_url,
+                    :public_description,
+                    :is_public
+                )
                 RETURNING *;
                 """
             ),
