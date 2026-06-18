@@ -402,3 +402,11 @@ with QR codes linking customers directly from physical products and events to th
 
 
 Implement server-hosted product image uploads using FastAPI, PostgreSQL, Docker, and React. Store uploaded files on disk, store file paths in PostgreSQL, and add image upload controls to the Products admin page.
+
+Current Development Rules
+
+- Prefer incremental changes over refactors.
+- Do not rewrite working systems.
+- Preserve existing database structure when possible.
+- Prioritize business features over architecture cleanup.
+- All new features should be compatible with eventual storefront use.
