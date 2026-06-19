@@ -194,7 +194,13 @@ button:disabled {
   gap: 16px;
 }
 
+.admin-page-header > div {
+  display: grid;
+  gap: 12px;
+}
+
 .admin-page-header h1 {
+  line-height: 1.08;
   margin: 0;
 }
 
