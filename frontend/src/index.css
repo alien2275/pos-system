@@ -145,6 +145,83 @@ code {
   display: block;
 }
 
+.store-page {
+  text-align: left;
+}
+
+.store-header {
+  margin-bottom: 32px;
+  text-align: center;
+}
+
+.store-header p {
+  color: var(--text);
+}
+
+.store-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 20px;
+}
+
+.store-product {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+}
+
+.store-product-image {
+  display: grid;
+  aspect-ratio: 1;
+  place-items: center;
+  background: var(--code-bg);
+}
+
+.store-product-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.store-product-image span {
+  color: var(--text);
+  font-size: 14px;
+}
+
+.store-product-body {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+}
+
+.store-product-category {
+  min-height: 20px;
+  color: var(--accent);
+  font-size: 14px;
+}
+
+.store-product h2 {
+  margin: 0;
+}
+
+.store-product-description {
+  min-height: 52px;
+}
+
+.store-product-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--text-h);
+}
+
+.store-product-footer span {
+  color: var(--text);
+  font-size: 14px;
+}
+
 @media print {
   nav,
   h1,

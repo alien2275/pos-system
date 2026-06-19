@@ -4,6 +4,7 @@ import Products from "./pages/Products";
 import Inventory from "./pages/Inventory";
 import Checkout from "./pages/Checkout";
 import Sales from "./pages/Sales";
+import Store from "./pages/Store";
 
 
 function App() {
@@ -14,7 +15,8 @@ function App() {
         <Link to="/products">Products</Link>{" | "}
         <Link to="/inventory">Inventory</Link>{" | "}
         <Link to="/checkout">Checkout</Link>{" | "}
-        <Link to="/sales">Sales</Link>
+        <Link to="/sales">Sales</Link>{" | "}
+        <Link to="/store">Store</Link>
       </nav>
 
       <Routes>
@@ -23,6 +25,7 @@ function App() {
         <Route path="/inventory" element={<Inventory />} />
         <Route path="/checkout" element={<Checkout />} />
         <Route path="/sales" element={<Sales />} />
+        <Route path="/store" element={<Store />} />
       </Routes>
     </div>
   );

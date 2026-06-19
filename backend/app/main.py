@@ -121,6 +121,36 @@ def get_products():
         ]
 
 
+@app.get("/store/products")
+def get_store_products():
+    with engine.connect() as conn:
+        result = conn.execute(
+            text(
+                """
+                SELECT
+                    id,
+                    sku,
+                    name,
+                    category,
+                    public_description,
+                    image_url,
+                    price_cents,
+                    quantity_on_hand
+                FROM products
+                WHERE is_active = TRUE
+                  AND is_public = TRUE
+                  AND quantity_on_hand > 0
+                ORDER BY category NULLS LAST, name ASC;
+                """
+            )
+        )
+
+        return [
+            dict(row._mapping)
+            for row in result
+        ]
+
+
 @app.get("/products/search/{query}")
 def search_products(query: str):
     search_term = f"%{query}%"
