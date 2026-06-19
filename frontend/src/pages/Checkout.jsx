@@ -194,12 +194,14 @@ function Checkout() {
 
   return (
     <div className="admin-page checkout-page">
-      <header className="admin-page-header">
-        <div>
-          <h1>Checkout</h1>
-          <p>Scan items, take payment, and generate a receipt.</p>
-        </div>
-      </header>
+      {!lastSale && (
+        <header className="admin-page-header">
+          <div>
+            <h1>Checkout</h1>
+            <p>Scan items, take payment, and generate a receipt.</p>
+          </div>
+        </header>
+      )}
 
       {lastSale && (
         <section className="admin-panel receipt">
