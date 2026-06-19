@@ -427,6 +427,31 @@ button:disabled {
   align-items: start;
 }
 
+.checkout-page button {
+  min-height: 44px;
+  padding: 10px 14px;
+}
+
+.checkout-scan-form {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto;
+}
+
+.checkout-scan-form input {
+  min-height: 48px;
+  font-size: 18px;
+}
+
+.checkout-scan-form button,
+.checkout-complete-button {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.checkout-item-actions button {
+  min-width: 44px;
+}
+
 .checkout-summary {
   position: sticky;
   top: 90px;
@@ -450,10 +475,24 @@ button:disabled {
   text-align: center;
 }
 
+.receipt p {
+  margin: 5px 0;
+}
+
 .receipt h3 {
   margin: 0;
   color: var(--text-h);
   font-size: 24px;
+}
+
+.receipt-tagline,
+.receipt-meta {
+  color: var(--text);
+}
+
+.receipt-meta {
+  display: grid;
+  gap: 2px;
 }
 
 .receipt-lines {
@@ -474,6 +513,11 @@ button:disabled {
 
 .receipt-total {
   font-weight: 700;
+}
+
+.sale-customer-line {
+  font-weight: 700;
+  color: var(--text-h);
 }
 
 .receipt-qr {
@@ -1064,8 +1108,23 @@ button:disabled {
     display: grid;
   }
 
+  .checkout-page button,
+  .checkout-summary input,
+  .checkout-summary select {
+    min-height: 48px;
+  }
+
+  .checkout-scan-form {
+    grid-template-columns: 1fr;
+  }
+
+  .checkout-item-actions {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(44px, 1fr));
+  }
+
   .admin-table {
-    min-width: 620px;
+    min-width: 720px;
   }
 
   .public-store-shell {
@@ -1124,27 +1183,61 @@ button:disabled {
     border: none !important;
     color: black;
     background: white;
-    font-size: 12px;
+    font-size: 10px;
+    line-height: 1.25;
   }
 
-  .receipt table {
-    width: 100%;
-    border-collapse: collapse;
+  .receipt h3 {
+    color: black;
+    font-size: 15px;
+    line-height: 1.1;
   }
 
-  .receipt th,
-  .receipt td {
-    font-size: 12px;
-    padding: 2px;
+  .receipt p {
+    margin: 2px 0;
+  }
+
+  .receipt hr {
+    margin: 5px 0;
+    border: 0;
+    border-top: 1px dashed black;
+  }
+
+  .receipt-lines {
+    gap: 4px;
+    max-width: 100%;
+    font-size: 10px;
+  }
+
+  .receipt-lines > div,
+  .receipt-total {
+    gap: 6px;
+  }
+
+  .receipt-lines span:first-child {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .receipt-lines span:last-child {
+    white-space: nowrap;
   }
 
   .receipt-qr img {
-    width: 28mm;
-    height: 28mm;
+    width: 24mm;
+    height: 24mm;
   }
 
+  .receipt-qr {
+    gap: 3px;
+    margin-top: 6px;
+    max-width: 46mm;
+  }
+
+  .receipt-qr p,
   .receipt-qr small {
     color: black;
+    font-size: 9px;
   }
 
   body {

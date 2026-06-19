@@ -2154,6 +2154,11 @@ def get_sales_range(start_date: str, end_date: str):
                 """
                 SELECT
                     sales.*,
+                    COALESCE(
+                        sales.customer_name,
+                        online_orders.customer_name,
+                        online_orders.shipping_name
+                    ) AS display_customer_name,
                     online_orders.id AS online_order_id,
                     online_orders.status AS online_order_status
                 FROM sales
@@ -2264,6 +2269,11 @@ def search_sales(query: str, field: str = "all"):
                 f"""
                 SELECT
                     sales.*,
+                    COALESCE(
+                        sales.customer_name,
+                        online_orders.customer_name,
+                        online_orders.shipping_name
+                    ) AS display_customer_name,
                     online_orders.id AS online_order_id,
                     online_orders.status AS online_order_status
                 FROM sales

@@ -203,14 +203,16 @@ function Checkout() {
 
       {lastSale && (
         <section className="admin-panel receipt">
-          <h2>Receipt</h2>
+          <h2 className="no-print">Receipt</h2>
           <h3>sammyinthesky</h3>
 
-          <p>Handmade Jewelry & Crafts</p>
+          <p className="receipt-tagline">Handmade Jewelry & Crafts</p>
 
           <hr />
-          <p>Order {lastSale.order_number || lastSale.id}</p>
-          {lastSale.customer_name && <p>Customer: {lastSale.customer_name}</p>}
+          <div className="receipt-meta">
+            <p>Order {lastSale.order_number || lastSale.id}</p>
+            {lastSale.customer_name && <p>Customer: {lastSale.customer_name}</p>}
+          </div>
 
           <div className="receipt-lines">
             {lastSale.items.map((item) => (
@@ -274,7 +276,7 @@ function Checkout() {
             </div>
           )}
 
-          <div className="button-row">
+          <div className="button-row receipt-actions no-print">
             <button onClick={() => window.print()}>Print Receipt</button>
             <button onClick={emailReceipt}>Email Receipt</button>
 
@@ -294,7 +296,7 @@ function Checkout() {
         <div className="checkout-layout">
           <section className="admin-panel">
             <h2>Add Item</h2>
-            <form className="inline-form" onSubmit={addBarcode}>
+            <form className="inline-form checkout-scan-form" onSubmit={addBarcode}>
               <input
                 value={barcode}
                 onChange={(e) => setBarcode(e.target.value)}
@@ -326,9 +328,19 @@ function Checkout() {
                       <td>${(item.price_cents / 100).toFixed(2)}</td>
                       <td>${((item.price_cents * item.quantity) / 100).toFixed(2)}</td>
                       <td>
-                        <div className="button-row compact">
-                          <button onClick={() => decreaseQuantity(item.id)}>-</button>
-                          <button onClick={() => increaseQuantity(item.id)}>+</button>
+                        <div className="button-row compact checkout-item-actions">
+                          <button
+                            onClick={() => decreaseQuantity(item.id)}
+                            aria-label={`Decrease ${item.name}`}
+                          >
+                            -
+                          </button>
+                          <button
+                            onClick={() => increaseQuantity(item.id)}
+                            aria-label={`Increase ${item.name}`}
+                          >
+                            +
+                          </button>
                           <button onClick={() => removeItem(item.id)}>Remove</button>
                         </div>
                       </td>
@@ -385,7 +397,9 @@ function Checkout() {
               </>
             )}
 
-            <button onClick={completeSale}>Complete Sale</button>
+            <button className="checkout-complete-button" onClick={completeSale}>
+              Complete Sale
+            </button>
           </aside>
         </div>
       )}

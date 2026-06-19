@@ -156,6 +156,7 @@ function Sales() {
                   <tr>
                     <th>Order #</th>
                     <th>Type</th>
+                    <th>Customer</th>
                     <th>Date</th>
                     <th>Total</th>
                     <th>Actions</th>
@@ -167,6 +168,7 @@ function Sales() {
                     <tr key={sale.id}>
                       <td>{sale.order_number || sale.id}</td>
                       <td>{sale.online_order_id ? "Online" : "POS"}</td>
+                      <td>{sale.display_customer_name || sale.customer_name || "-"}</td>
                       <td>{sale.created_at}</td>
                       <td>${(sale.total_cents / 100).toFixed(2)}</td>
                       <td>
@@ -192,7 +194,9 @@ function Sales() {
 
           <p>Date: {selectedSale.sale.created_at}</p>
           {selectedSale.sale.customer_name && (
-            <p>Customer: {selectedSale.sale.customer_name}</p>
+            <p className="sale-customer-line">
+              Customer: {selectedSale.sale.customer_name}
+            </p>
           )}
 
           {selectedSale.online_order && (
