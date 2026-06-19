@@ -176,7 +176,9 @@ function StoreProducts() {
         shipping_postal_code: "",
         shipping_country: "US",
       });
-      setOrderMessage(`Order #${data.order.id} placed for testing.`);
+      setOrderMessage(
+        `Order ${data.order.order_number || data.order.id} placed for testing.`
+      );
     } catch (err) {
       console.error(err);
       alert("Order failed");

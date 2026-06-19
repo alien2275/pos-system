@@ -125,7 +125,7 @@ function Orders() {
       <article className="order-card" key={order.id}>
         <div className="section-heading">
           <div>
-            <h3>Order #{order.id}</h3>
+            <h3>Order {order.order_number || order.id}</h3>
             <p>{order.customer_name} - {order.customer_email}</p>
           </div>
           <span>{formatStatus(order.status)}</span>

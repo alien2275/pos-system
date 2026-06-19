@@ -114,6 +114,7 @@ function Checkout() {
 
     setLastSale({
       id: data.id,
+      order_number: data.order_number,
       total_cents: data.total_cents,
       items: [...cart],
       paymentType,
@@ -132,7 +133,9 @@ function Checkout() {
       return;
     }
 
-    const subject = encodeURIComponent(`Receipt for Sale #${lastSale.id}`);
+    const subject = encodeURIComponent(
+      `Receipt for Order ${lastSale.order_number || lastSale.id}`
+    );
 
     const itemLines = lastSale.items
       .map(
@@ -146,7 +149,7 @@ function Checkout() {
 
     const body = encodeURIComponent(
       `Thank you for your purchase!\n\n` +
-        `Sale #${lastSale.id}\n\n` +
+        `Order ${lastSale.order_number || lastSale.id}\n\n` +
         itemLines +
         `\n\nTotal: $${(lastSale.total_cents / 100).toFixed(2)}\n` +
         `Payment: ${
@@ -179,7 +182,7 @@ function Checkout() {
           <p>Handmade Jewelry & Crafts</p>
 
           <hr />
-          <p>Sale #{lastSale.id}</p>
+          <p>Order {lastSale.order_number || lastSale.id}</p>
 
           <div className="receipt-lines">
             {lastSale.items.map((item) => (

@@ -1,4 +1,5 @@
 import os
+import secrets
 import uuid
 from typing import Literal, Optional, List
 
@@ -40,6 +41,22 @@ DB_HOST = os.getenv("POSTGRES_HOST", "postgres")
 DATABASE_URL = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:5432/{DB_NAME}"
 
 engine = create_engine(DATABASE_URL)
+
+
+def generate_order_number(conn):
+    alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+
+    for _ in range(10):
+        order_number = "".join(secrets.choice(alphabet) for _ in range(8))
+        existing = conn.execute(
+            text("SELECT id FROM sales WHERE order_number = :order_number;"),
+            {"order_number": order_number},
+        ).first()
+
+        if existing is None:
+            return order_number
+
+    raise HTTPException(status_code=500, detail="Could not generate order number")
 
 
 class ProductCreate(BaseModel):
@@ -145,6 +162,9 @@ class OnlineOrderShipmentUpdate(BaseModel):
 def ensure_event_table():
     with engine.begin() as conn:
         conn.execute(
+            text("ALTER TABLE sales ADD COLUMN IF NOT EXISTS order_number TEXT;")
+        )
+        conn.execute(
             text(
                 """
                 CREATE TABLE IF NOT EXISTS events (
@@ -212,6 +232,17 @@ def ensure_event_table():
         conn.execute(text("ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS archived_at TIMESTAMP;"))
         conn.execute(
             text(
+                """
+                UPDATE sales
+                SET order_number = SUBSTRING(UPPER(MD5('sale-' || id::text || '-' || created_at::text)) FROM 1 FOR 8)
+                WHERE order_number IS NULL
+                   OR order_number LIKE 'POS-%'
+                   OR order_number LIKE 'WEB-%';
+                """
+            )
+        )
+        conn.execute(
+            text(
                 "ALTER TABLE online_orders ALTER COLUMN status SET DEFAULT 'pending_packaging';"
             )
         )
@@ -250,15 +281,20 @@ def ensure_event_table():
 
         for order in existing_online_orders:
             order_data = dict(order._mapping)
+            order_number = generate_order_number(conn)
             sale = conn.execute(
                 text(
                     """
-                    INSERT INTO sales (total_cents)
-                    VALUES (:total_cents)
+                    INSERT INTO sales (total_cents, order_number, created_at)
+                    VALUES (:total_cents, :order_number, :created_at)
                     RETURNING *;
                     """
                 ),
-                {"total_cents": order_data["total_cents"]},
+                {
+                    "total_cents": order_data["total_cents"],
+                    "order_number": order_number,
+                    "created_at": order_data["created_at"],
+                },
             ).first()
             sale_id = sale._mapping["id"]
 
@@ -456,15 +492,16 @@ def create_store_order(order: OnlineOrderCreate):
         ).first()
 
         order_id = order_row._mapping["id"]
+        order_number = generate_order_number(conn)
         sale_row = conn.execute(
             text(
                 """
-                INSERT INTO sales (total_cents)
-                VALUES (:total_cents)
+                INSERT INTO sales (total_cents, order_number)
+                VALUES (:total_cents, :order_number)
                 RETURNING *;
                 """
             ),
-            {"total_cents": total_cents},
+            {"total_cents": total_cents, "order_number": order_number},
         ).first()
         sale_id = sale_row._mapping["id"]
 
@@ -539,7 +576,11 @@ def create_store_order(order: OnlineOrderCreate):
             )
 
     return {
-        "order": {**dict(order_row._mapping), "sale_id": sale_id},
+        "order": {
+            **dict(order_row._mapping),
+            "sale_id": sale_id,
+            "order_number": sale_row._mapping["order_number"],
+        },
         "items": order_items,
     }
 
@@ -602,8 +643,11 @@ def get_online_orders(include_archived: bool = False):
         orders = conn.execute(
             text(
                 """
-                SELECT *
+                SELECT
+                    online_orders.*,
+                    sales.order_number
                 FROM online_orders
+                LEFT JOIN sales ON sales.id = online_orders.sale_id
                 WHERE (:include_archived = TRUE OR archived_at IS NULL)
                 ORDER BY
                     CASE status
@@ -1285,6 +1329,104 @@ def get_sales_range(start_date: str, end_date: str):
         }
     
     
+@app.get("/sales/search")
+def search_sales(query: str, field: str = "all"):
+    search = f"%{query.strip()}%"
+
+    allowed_fields = {
+        "all",
+        "order_number",
+        "customer",
+        "tracking",
+        "type",
+        "product",
+    }
+
+    if field not in allowed_fields:
+        raise HTTPException(status_code=400, detail="Invalid search field")
+
+    if not query.strip():
+        return {
+            "summary": {"sale_count": 0, "total_cents": 0},
+            "sales": [],
+        }
+
+    conditions = {
+        "order_number": """
+            (
+                sales.order_number ILIKE :search
+                OR sales.id::text ILIKE :search
+                OR online_orders.id::text ILIKE :search
+            )
+        """,
+        "customer": """
+            (
+                online_orders.customer_name ILIKE :search
+                OR online_orders.customer_email ILIKE :search
+                OR online_orders.shipping_name ILIKE :search
+            )
+        """,
+        "tracking": """
+            (
+                online_orders.tracking_id ILIKE :search
+                OR online_orders.carrier ILIKE :search
+            )
+        """,
+        "type": """
+            (
+                (:query_lower = 'online' AND online_orders.id IS NOT NULL)
+                OR (:query_lower = 'pos' AND online_orders.id IS NULL)
+            )
+        """,
+        "product": """
+            EXISTS (
+                SELECT 1
+                FROM sale_items
+                JOIN products ON products.id = sale_items.product_id
+                WHERE sale_items.sale_id = sales.id
+                  AND products.name ILIKE :search
+            )
+        """,
+    }
+
+    if field == "all":
+        where_clause = " OR ".join(f"({condition})" for condition in conditions.values())
+    else:
+        where_clause = conditions[field]
+
+    with engine.connect() as conn:
+        sales = conn.execute(
+            text(
+                f"""
+                SELECT
+                    sales.*,
+                    online_orders.id AS online_order_id,
+                    online_orders.status AS online_order_status
+                FROM sales
+                LEFT JOIN online_orders ON online_orders.sale_id = sales.id
+                WHERE {where_clause}
+                ORDER BY sales.created_at DESC
+                LIMIT 100;
+                """
+            ),
+            {
+                "search": search,
+                "query_lower": query.strip().lower(),
+            },
+        )
+
+        sale_rows = [dict(row._mapping) for row in sales]
+        total_cents = sum(row["total_cents"] for row in sale_rows)
+
+        return {
+            "summary": {
+                "sale_count": len(sale_rows),
+                "total_cents": total_cents,
+            },
+            "sales": sale_rows,
+        }
+
+
 @app.get("/sales/{sale_id}")
 def get_sale(sale_id: int):
     with engine.connect() as conn:
@@ -1606,12 +1748,15 @@ def create_sale(sale: SaleCreate):
         sale_row = conn.execute(
             text(
                 """
-                INSERT INTO sales (total_cents)
-                VALUES (:total_cents)
+                INSERT INTO sales (total_cents, order_number)
+                VALUES (:total_cents, :order_number)
                 RETURNING *;
                 """
             ),
-            {"total_cents": total_cents},
+            {
+                "total_cents": total_cents,
+                "order_number": generate_order_number(conn),
+            },
         ).first()
 
         sale_id = sale_row._mapping["id"]
@@ -1667,6 +1812,7 @@ def create_sale(sale: SaleCreate):
 
     return {
         "id": sale_id,
+        "order_number": sale_row._mapping["order_number"],
         "total_cents": total_cents,
         "items": sale_items_data,
     }

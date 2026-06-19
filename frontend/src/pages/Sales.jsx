@@ -9,6 +9,8 @@ function Sales() {
 
   const [startDate, setStartDate] = useState(today);
   const [endDate, setEndDate] = useState(today);
+  const [searchField, setSearchField] = useState("all");
+  const [searchQuery, setSearchQuery] = useState("");
 
   async function loadSales(start, end) {
     const response = await fetch(
@@ -37,6 +39,30 @@ function Sales() {
     loadSales(startDate, endDate);
   }
 
+  async function searchOrders(event) {
+    event.preventDefault();
+
+    if (!searchQuery.trim()) {
+      alert("Enter something to search for");
+      return;
+    }
+
+    const response = await fetch(
+      `${API_URL}/sales/search?field=${encodeURIComponent(
+        searchField
+      )}&query=${encodeURIComponent(searchQuery)}`
+    );
+    const data = await response.json();
+
+    if (!response.ok) {
+      alert(data.detail || "Search failed");
+      return;
+    }
+
+    setSalesData(data);
+    setSelectedSale(null);
+  }
+
   return (
     <div className="admin-page">
       <header className="admin-page-header">
@@ -45,6 +71,38 @@ function Sales() {
           <p>Search transactions and review receipt details.</p>
         </div>
       </header>
+
+      <section className="admin-panel">
+        <h2>Find Order</h2>
+
+        <form className="inline-form" onSubmit={searchOrders}>
+          <label>
+            Search By
+            <select
+              value={searchField}
+              onChange={(e) => setSearchField(e.target.value)}
+            >
+              <option value="all">All</option>
+              <option value="order_number">Order Number</option>
+              <option value="customer">Customer</option>
+              <option value="tracking">Tracking</option>
+              <option value="type">Type</option>
+              <option value="product">Product</option>
+            </select>
+          </label>
+
+          <label>
+            Search
+            <input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Order code, name, tracking, product..."
+            />
+          </label>
+
+          <button type="submit">Search</button>
+        </form>
+      </section>
 
       <section className="admin-panel">
         <h2>Date Range</h2>
@@ -95,7 +153,7 @@ function Sales() {
               <table className="admin-table">
                 <thead>
                   <tr>
-                    <th>Sale ID</th>
+                    <th>Order #</th>
                     <th>Type</th>
                     <th>Date</th>
                     <th>Total</th>
@@ -106,7 +164,7 @@ function Sales() {
                 <tbody>
                   {salesData.sales.map((sale) => (
                     <tr key={sale.id}>
-                      <td>{sale.id}</td>
+                      <td>{sale.order_number || sale.id}</td>
                       <td>{sale.online_order_id ? "Online" : "POS"}</td>
                       <td>{sale.created_at}</td>
                       <td>${(sale.total_cents / 100).toFixed(2)}</td>
@@ -127,7 +185,7 @@ function Sales() {
       {selectedSale && (
         <section className="admin-panel">
           <div className="section-heading">
-            <h2>Sale #{selectedSale.sale.id}</h2>
+            <h2>Order {selectedSale.sale.order_number || selectedSale.sale.id}</h2>
             <span>${(selectedSale.sale.total_cents / 100).toFixed(2)}</span>
           </div>
 
