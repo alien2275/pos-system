@@ -155,6 +155,9 @@ function Orders() {
                 {((item.price_cents * item.quantity) / 100).toFixed(2)}
               </p>
             ))}
+            <p>Subtotal: ${((order.subtotal_cents || 0) / 100).toFixed(2)}</p>
+            <p>Tax: ${((order.tax_cents || 0) / 100).toFixed(2)}</p>
+            <p>Shipping: ${((order.shipping_cents || 0) / 100).toFixed(2)}</p>
             <p>
               <strong>Total: ${(order.total_cents / 100).toFixed(2)}</strong>
             </p>

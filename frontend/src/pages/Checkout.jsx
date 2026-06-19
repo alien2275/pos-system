@@ -1,12 +1,25 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { API_URL } from "../config";
 
 function Checkout() {
   const [barcode, setBarcode] = useState("");
   const [cart, setCart] = useState([]);
+  const [customerName, setCustomerName] = useState("");
   const [cashReceived, setCashReceived] = useState("");
   const [paymentType, setPaymentType] = useState("cash");
   const [lastSale, setLastSale] = useState(null);
+  const [settings, setSettings] = useState({
+    tax_state: "MD",
+    tax_rate_percent: "6.00",
+    flat_shipping_cents: 0,
+  });
+
+  useEffect(() => {
+    fetch(`${API_URL}/settings`)
+      .then((res) => res.json())
+      .then((data) => setSettings(data))
+      .catch((err) => console.error(err));
+  }, []);
 
   async function addBarcode(event) {
     event.preventDefault();
@@ -67,10 +80,13 @@ function Checkout() {
     setCart(cart.filter((item) => item.id !== productId));
   }
 
-  const total = cart.reduce(
+  const subtotal = cart.reduce(
     (sum, item) => sum + item.price_cents * item.quantity,
     0
   );
+  const taxRate = Number(settings.tax_rate_percent || 0);
+  const tax = Math.round(subtotal * (taxRate / 100));
+  const total = subtotal + tax;
 
   const changeDue =
     paymentType === "cash"
@@ -98,6 +114,8 @@ function Checkout() {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
+        customer_name: customerName || null,
+        payment_type: paymentType,
         items: cart.map((item) => ({
           product_id: item.id,
           quantity: item.quantity,
@@ -115,6 +133,10 @@ function Checkout() {
     setLastSale({
       id: data.id,
       order_number: data.order_number,
+      customer_name: data.customer_name,
+      subtotal_cents: data.subtotal_cents,
+      tax_cents: data.tax_cents,
+      tax_rate_percent: data.tax_rate_percent,
       total_cents: data.total_cents,
       items: [...cart],
       paymentType,
@@ -124,6 +146,7 @@ function Checkout() {
 
     setCart([]);
     setBarcode("");
+    setCustomerName("");
     setCashReceived("");
     setPaymentType("cash");
   }
@@ -151,7 +174,9 @@ function Checkout() {
       `Thank you for your purchase!\n\n` +
         `Order ${lastSale.order_number || lastSale.id}\n\n` +
         itemLines +
-        `\n\nTotal: $${(lastSale.total_cents / 100).toFixed(2)}\n` +
+        `\n\nSubtotal: $${(lastSale.subtotal_cents / 100).toFixed(2)}\n` +
+        `Tax: $${(lastSale.tax_cents / 100).toFixed(2)}\n` +
+        `Total: $${(lastSale.total_cents / 100).toFixed(2)}\n` +
         `Payment: ${
           lastSale.paymentType === "cash" ? "Cash" : "Card / Other"
         }\n` +
@@ -183,6 +208,7 @@ function Checkout() {
 
           <hr />
           <p>Order {lastSale.order_number || lastSale.id}</p>
+          {lastSale.customer_name && <p>Customer: {lastSale.customer_name}</p>}
 
           <div className="receipt-lines">
             {lastSale.items.map((item) => (
@@ -198,6 +224,16 @@ function Checkout() {
             ))}
 
             <hr />
+
+            <div>
+              <span>Subtotal</span>
+              <span>${(lastSale.subtotal_cents / 100).toFixed(2)}</span>
+            </div>
+
+            <div>
+              <span>Tax</span>
+              <span>${(lastSale.tax_cents / 100).toFixed(2)}</span>
+            </div>
 
             <div className="receipt-total">
               <span>TOTAL</span>
@@ -289,8 +325,21 @@ function Checkout() {
           </section>
 
           <aside className="admin-panel checkout-summary">
+            <label>
+              Customer Name
+              <input
+                value={customerName}
+                onChange={(e) => setCustomerName(e.target.value)}
+                placeholder="Optional"
+              />
+            </label>
+
             <span>Total</span>
             <strong>${(total / 100).toFixed(2)}</strong>
+            <p>Subtotal: ${(subtotal / 100).toFixed(2)}</p>
+            <p>
+              Tax ({settings.tax_state} {taxRate.toFixed(2)}%): ${(tax / 100).toFixed(2)}
+            </p>
 
             <label>
               Payment Type

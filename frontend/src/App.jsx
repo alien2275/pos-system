@@ -7,6 +7,7 @@ import Sales from "./pages/Sales";
 import Events from "./pages/Events";
 import Orders from "./pages/Orders";
 import OrderDetail from "./pages/OrderDetail";
+import Settings from "./pages/Settings";
 import Store from "./pages/Store";
 import StoreProducts from "./pages/StoreProducts";
 
@@ -19,6 +20,7 @@ function AdminLayout() {
     { to: "/sales", label: "Sales" },
     { to: "/orders", label: "Orders" },
     { to: "/events", label: "Events" },
+    { to: "/settings", label: "Settings" },
   ];
 
   return (
@@ -44,6 +46,7 @@ function AdminLayout() {
           <Route path="/orders" element={<Orders />} />
           <Route path="/orders/:orderId" element={<OrderDetail />} />
           <Route path="/events" element={<Events />} />
+          <Route path="/settings" element={<Settings />} />
         </Routes>
       </main>
     </div>

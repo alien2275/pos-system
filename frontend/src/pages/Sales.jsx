@@ -191,6 +191,9 @@ function Sales() {
           </div>
 
           <p>Date: {selectedSale.sale.created_at}</p>
+          {selectedSale.sale.customer_name && (
+            <p>Customer: {selectedSale.sale.customer_name}</p>
+          )}
 
           {selectedSale.online_order && (
             <div className="selected-summary">
@@ -233,6 +236,19 @@ function Sales() {
                 ))}
               </tbody>
             </table>
+          </div>
+
+          <div className="selected-summary">
+            <span>
+              Subtotal: $
+              {((selectedSale.sale.subtotal_cents || selectedSale.sale.total_cents) / 100).toFixed(2)}
+            </span>
+            <span>
+              Tax: ${((selectedSale.sale.tax_cents || 0) / 100).toFixed(2)}
+            </span>
+            <span>
+              Total: ${(selectedSale.sale.total_cents / 100).toFixed(2)}
+            </span>
           </div>
         </section>
       )}

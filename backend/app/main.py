@@ -2,6 +2,7 @@ import os
 import re
 import secrets
 import uuid
+from decimal import Decimal, ROUND_HALF_UP
 from io import BytesIO
 from typing import Literal, Optional, List
 
@@ -47,6 +48,13 @@ DATABASE_URL = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:5432/{DB_NAME}"
 engine = create_engine(DATABASE_URL)
 
 
+DEFAULT_SETTINGS = {
+    "tax_state": "MD",
+    "tax_rate_percent": "6.00",
+    "flat_shipping_cents": "600",
+}
+
+
 def generate_order_number(conn):
     alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 
@@ -61,6 +69,30 @@ def generate_order_number(conn):
             return order_number
 
     raise HTTPException(status_code=500, detail="Could not generate order number")
+
+
+def get_app_settings(conn):
+    rows = conn.execute(text("SELECT key, value FROM app_settings;"))
+    settings = DEFAULT_SETTINGS.copy()
+    settings.update({row._mapping["key"]: row._mapping["value"] for row in rows})
+
+    tax_rate = Decimal(settings["tax_rate_percent"])
+    flat_shipping_cents = int(settings["flat_shipping_cents"])
+
+    return {
+        "tax_state": settings["tax_state"],
+        "tax_rate_percent": str(tax_rate.quantize(Decimal("0.01"))),
+        "flat_shipping_cents": flat_shipping_cents,
+    }
+
+
+def calculate_tax_cents(amount_cents, tax_rate_percent):
+    rate = Decimal(str(tax_rate_percent))
+    tax = (Decimal(amount_cents) * rate / Decimal("100")).quantize(
+        Decimal("1"),
+        rounding=ROUND_HALF_UP,
+    )
+    return int(tax)
 
 
 def normalize_import_header(value):
@@ -312,6 +344,14 @@ class SaleItemCreate(BaseModel):
 
 class SaleCreate(BaseModel):
     items: List[SaleItemCreate]
+    customer_name: Optional[str] = None
+    payment_type: Optional[Literal["cash", "card", "other"]] = None
+
+
+class AppSettingsUpdate(BaseModel):
+    tax_state: Optional[str] = None
+    tax_rate_percent: Optional[Decimal] = None
+    flat_shipping_cents: Optional[int] = None
 
 
 class EventCreate(BaseModel):
@@ -363,7 +403,43 @@ class OnlineOrderShipmentUpdate(BaseModel):
 def ensure_event_table():
     with engine.begin() as conn:
         conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS app_settings (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL,
+                    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
+                """
+            )
+        )
+        for key, value in DEFAULT_SETTINGS.items():
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO app_settings (key, value)
+                    VALUES (:key, :value)
+                    ON CONFLICT (key) DO NOTHING;
+                    """
+                ),
+                {"key": key, "value": value},
+            )
+        conn.execute(
             text("ALTER TABLE sales ADD COLUMN IF NOT EXISTS order_number TEXT;")
+        )
+        conn.execute(text("ALTER TABLE sales ADD COLUMN IF NOT EXISTS customer_name TEXT;"))
+        conn.execute(text("ALTER TABLE sales ADD COLUMN IF NOT EXISTS payment_type TEXT;"))
+        conn.execute(text("ALTER TABLE sales ADD COLUMN IF NOT EXISTS subtotal_cents INTEGER;"))
+        conn.execute(text("ALTER TABLE sales ADD COLUMN IF NOT EXISTS tax_cents INTEGER NOT NULL DEFAULT 0;"))
+        conn.execute(text("ALTER TABLE sales ADD COLUMN IF NOT EXISTS tax_rate_percent NUMERIC(8, 3) NOT NULL DEFAULT 0;"))
+        conn.execute(
+            text(
+                """
+                UPDATE sales
+                SET subtotal_cents = total_cents
+                WHERE subtotal_cents IS NULL;
+                """
+            )
         )
         conn.execute(
             text(
@@ -415,6 +491,10 @@ def ensure_event_table():
                     carrier TEXT,
                     tracking_id TEXT,
                     status TEXT NOT NULL DEFAULT 'pending_packaging',
+                    subtotal_cents INTEGER NOT NULL DEFAULT 0,
+                    tax_cents INTEGER NOT NULL DEFAULT 0,
+                    shipping_cents INTEGER NOT NULL DEFAULT 0,
+                    tax_rate_percent NUMERIC(8, 3) NOT NULL DEFAULT 0,
                     total_cents INTEGER NOT NULL DEFAULT 0,
                     packaged_at TIMESTAMP,
                     shipped_at TIMESTAMP,
@@ -431,6 +511,22 @@ def ensure_event_table():
         conn.execute(text("ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS packaged_at TIMESTAMP;"))
         conn.execute(text("ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS shipped_at TIMESTAMP;"))
         conn.execute(text("ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS archived_at TIMESTAMP;"))
+        conn.execute(text("ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS subtotal_cents INTEGER NOT NULL DEFAULT 0;"))
+        conn.execute(text("ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS tax_cents INTEGER NOT NULL DEFAULT 0;"))
+        conn.execute(text("ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS shipping_cents INTEGER NOT NULL DEFAULT 0;"))
+        conn.execute(text("ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS tax_rate_percent NUMERIC(8, 3) NOT NULL DEFAULT 0;"))
+        conn.execute(
+            text(
+                """
+                UPDATE online_orders
+                SET subtotal_cents = total_cents
+                WHERE subtotal_cents = 0
+                  AND total_cents > 0
+                  AND tax_cents = 0
+                  AND shipping_cents = 0;
+                """
+            )
+        )
         conn.execute(
             text(
                 """
@@ -486,12 +582,29 @@ def ensure_event_table():
             sale = conn.execute(
                 text(
                     """
-                    INSERT INTO sales (total_cents, order_number, created_at)
-                    VALUES (:total_cents, :order_number, :created_at)
+                    INSERT INTO sales (
+                        subtotal_cents,
+                        tax_cents,
+                        tax_rate_percent,
+                        total_cents,
+                        order_number,
+                        created_at
+                    )
+                    VALUES (
+                        :subtotal_cents,
+                        :tax_cents,
+                        :tax_rate_percent,
+                        :total_cents,
+                        :order_number,
+                        :created_at
+                    )
                     RETURNING *;
                     """
                 ),
                 {
+                    "subtotal_cents": order_data.get("subtotal_cents") or order_data["total_cents"],
+                    "tax_cents": order_data.get("tax_cents") or 0,
+                    "tax_rate_percent": order_data.get("tax_rate_percent") or 0,
                     "total_cents": order_data["total_cents"],
                     "order_number": order_number,
                     "created_at": order_data["created_at"],
@@ -550,6 +663,49 @@ def root():
     }
 
 
+@app.get("/settings")
+def get_settings():
+    with engine.connect() as conn:
+        return get_app_settings(conn)
+
+
+@app.put("/settings")
+def update_settings(settings_update: AppSettingsUpdate):
+    fields = settings_update.model_dump(exclude_unset=True)
+
+    if not fields:
+        raise HTTPException(status_code=400, detail="No settings provided")
+
+    if "tax_rate_percent" in fields:
+        tax_rate = Decimal(fields["tax_rate_percent"])
+        if tax_rate < 0 or tax_rate > 25:
+            raise HTTPException(status_code=400, detail="Tax rate must be between 0 and 25")
+        fields["tax_rate_percent"] = str(tax_rate.quantize(Decimal("0.01")))
+
+    if "flat_shipping_cents" in fields and fields["flat_shipping_cents"] < 0:
+        raise HTTPException(status_code=400, detail="Flat shipping cannot be negative")
+
+    if "tax_state" in fields:
+        fields["tax_state"] = fields["tax_state"].strip().upper()[:20] or "MD"
+
+    with engine.begin() as conn:
+        for key, value in fields.items():
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO app_settings (key, value, updated_at)
+                    VALUES (:key, :value, CURRENT_TIMESTAMP)
+                    ON CONFLICT (key) DO UPDATE
+                    SET value = EXCLUDED.value,
+                        updated_at = CURRENT_TIMESTAMP;
+                    """
+                ),
+                {"key": key, "value": str(value)},
+            )
+
+        return get_app_settings(conn)
+
+
 @app.get("/products")
 def get_products():
     with engine.connect() as conn:
@@ -606,7 +762,8 @@ def create_store_order(order: OnlineOrderCreate):
         raise HTTPException(status_code=400, detail="Order must contain at least one item")
 
     with engine.begin() as conn:
-        total_cents = 0
+        settings = get_app_settings(conn)
+        subtotal_cents = 0
         order_items = []
 
         for item in order.items:
@@ -638,7 +795,7 @@ def create_store_order(order: OnlineOrderCreate):
                 )
 
             line_total = product_data["price_cents"] * item.quantity
-            total_cents += line_total
+            subtotal_cents += line_total
             order_items.append(
                 {
                     "product_id": item.product_id,
@@ -647,6 +804,10 @@ def create_store_order(order: OnlineOrderCreate):
                     "price_cents": product_data["price_cents"],
                 }
             )
+
+        shipping_cents = settings["flat_shipping_cents"]
+        tax_cents = calculate_tax_cents(subtotal_cents, settings["tax_rate_percent"])
+        total_cents = subtotal_cents + tax_cents + shipping_cents
 
         order_row = conn.execute(
             text(
@@ -665,6 +826,10 @@ def create_store_order(order: OnlineOrderCreate):
                     payment_provider,
                     payment_reference,
                     status,
+                    subtotal_cents,
+                    tax_cents,
+                    shipping_cents,
+                    tax_rate_percent,
                     total_cents
                 )
                 VALUES
@@ -681,6 +846,10 @@ def create_store_order(order: OnlineOrderCreate):
                     :payment_provider,
                     :payment_reference,
                     'pending_packaging',
+                    :subtotal_cents,
+                    :tax_cents,
+                    :shipping_cents,
+                    :tax_rate_percent,
                     :total_cents
                 )
                 RETURNING *;
@@ -688,6 +857,10 @@ def create_store_order(order: OnlineOrderCreate):
             ),
             {
                 **order.model_dump(exclude={"items"}),
+                "subtotal_cents": subtotal_cents,
+                "tax_cents": tax_cents,
+                "shipping_cents": shipping_cents,
+                "tax_rate_percent": settings["tax_rate_percent"],
                 "total_cents": total_cents,
             },
         ).first()
@@ -697,12 +870,36 @@ def create_store_order(order: OnlineOrderCreate):
         sale_row = conn.execute(
             text(
                 """
-                INSERT INTO sales (total_cents, order_number)
-                VALUES (:total_cents, :order_number)
+                INSERT INTO sales (
+                    customer_name,
+                    payment_type,
+                    subtotal_cents,
+                    tax_cents,
+                    tax_rate_percent,
+                    total_cents,
+                    order_number
+                )
+                VALUES (
+                    :customer_name,
+                    :payment_type,
+                    :subtotal_cents,
+                    :tax_cents,
+                    :tax_rate_percent,
+                    :total_cents,
+                    :order_number
+                )
                 RETURNING *;
                 """
             ),
-            {"total_cents": total_cents, "order_number": order_number},
+            {
+                "customer_name": order.customer_name,
+                "payment_type": order.payment_provider,
+                "subtotal_cents": subtotal_cents,
+                "tax_cents": tax_cents,
+                "tax_rate_percent": settings["tax_rate_percent"],
+                "total_cents": total_cents,
+                "order_number": order_number,
+            },
         ).first()
         sale_id = sale_row._mapping["id"]
 
@@ -1838,7 +2035,8 @@ def search_sales(query: str, field: str = "all"):
         """,
         "customer": """
             (
-                online_orders.customer_name ILIKE :search
+                sales.customer_name ILIKE :search
+                OR online_orders.customer_name ILIKE :search
                 OR online_orders.customer_email ILIKE :search
                 OR online_orders.shipping_name ILIKE :search
             )
@@ -2183,7 +2381,8 @@ def create_sale(sale: SaleCreate):
         raise HTTPException(status_code=400, detail="Sale must contain at least one item")
 
     with engine.begin() as conn:
-        total_cents = 0
+        settings = get_app_settings(conn)
+        subtotal_cents = 0
         sale_items_data = []
 
         for item in sale.items:
@@ -2213,7 +2412,7 @@ def create_sale(sale: SaleCreate):
                 )
 
             line_total = product_data["price_cents"] * item.quantity
-            total_cents += line_total
+            subtotal_cents += line_total
 
             sale_items_data.append({
                 "product_id": item.product_id,
@@ -2222,15 +2421,39 @@ def create_sale(sale: SaleCreate):
                 "name": product_data["name"],
             })
 
+        tax_cents = calculate_tax_cents(subtotal_cents, settings["tax_rate_percent"])
+        total_cents = subtotal_cents + tax_cents
+
         sale_row = conn.execute(
             text(
                 """
-                INSERT INTO sales (total_cents, order_number)
-                VALUES (:total_cents, :order_number)
+                INSERT INTO sales (
+                    customer_name,
+                    payment_type,
+                    subtotal_cents,
+                    tax_cents,
+                    tax_rate_percent,
+                    total_cents,
+                    order_number
+                )
+                VALUES (
+                    :customer_name,
+                    :payment_type,
+                    :subtotal_cents,
+                    :tax_cents,
+                    :tax_rate_percent,
+                    :total_cents,
+                    :order_number
+                )
                 RETURNING *;
                 """
             ),
             {
+                "customer_name": sale.customer_name.strip() if sale.customer_name else None,
+                "payment_type": sale.payment_type or "cash",
+                "subtotal_cents": subtotal_cents,
+                "tax_cents": tax_cents,
+                "tax_rate_percent": settings["tax_rate_percent"],
                 "total_cents": total_cents,
                 "order_number": generate_order_number(conn),
             },
@@ -2290,7 +2513,12 @@ def create_sale(sale: SaleCreate):
     return {
         "id": sale_id,
         "order_number": sale_row._mapping["order_number"],
-        "total_cents": total_cents,
+        "customer_name": sale_row._mapping["customer_name"],
+        "payment_type": sale_row._mapping["payment_type"],
+        "subtotal_cents": sale_row._mapping["subtotal_cents"],
+        "tax_cents": sale_row._mapping["tax_cents"],
+        "tax_rate_percent": str(sale_row._mapping["tax_rate_percent"]),
+        "total_cents": sale_row._mapping["total_cents"],
         "items": sale_items_data,
     }
 

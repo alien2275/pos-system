@@ -209,7 +209,16 @@ function OrderDetail() {
 
         <div className="section-heading">
           <p>Status: {formatStatus(order.status)}</p>
-          <strong>${(order.total_cents / 100).toFixed(2)}</strong>
+          <div className="order-total-stack">
+            <span>
+              Subtotal: ${((order.subtotal_cents || 0) / 100).toFixed(2)}
+            </span>
+            <span>Tax: ${((order.tax_cents || 0) / 100).toFixed(2)}</span>
+            <span>
+              Shipping: ${((order.shipping_cents || 0) / 100).toFixed(2)}
+            </span>
+            <strong>${(order.total_cents / 100).toFixed(2)}</strong>
+          </div>
         </div>
 
         {order.carrier && order.tracking_id && (

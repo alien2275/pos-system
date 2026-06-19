@@ -37,6 +37,11 @@ function StoreProducts() {
   const [orderMessage, setOrderMessage] = useState("");
   const [cartNotice, setCartNotice] = useState("");
   const [lastAddedProductId, setLastAddedProductId] = useState(null);
+  const [settings, setSettings] = useState({
+    tax_state: "MD",
+    tax_rate_percent: "6.00",
+    flat_shipping_cents: 0,
+  });
   const cartRef = useRef(null);
 
   useEffect(() => {
@@ -55,6 +60,13 @@ function StoreProducts() {
         setError("Store products are unavailable right now.");
       })
       .finally(() => setIsLoading(false));
+  }, []);
+
+  useEffect(() => {
+    fetch(`${API_URL}/settings`)
+      .then((res) => res.json())
+      .then((data) => setSettings(data))
+      .catch((err) => console.error(err));
   }, []);
 
   function addToCart(product) {
@@ -116,11 +128,15 @@ function StoreProducts() {
     });
   }
 
-  const cartTotal = cart.reduce(
+  const cartSubtotal = cart.reduce(
     (sum, item) => sum + item.price_cents * item.quantity,
     0
   );
   const cartItemCount = cart.reduce((sum, item) => sum + item.quantity, 0);
+  const taxRate = Number(settings.tax_rate_percent || 0);
+  const shippingCents = cart.length > 0 ? settings.flat_shipping_cents : 0;
+  const taxCents = Math.round(cartSubtotal * (taxRate / 100));
+  const cartTotal = cartSubtotal + taxCents + shippingCents;
 
   function scrollToCart() {
     cartRef.current?.scrollIntoView({
@@ -269,6 +285,21 @@ function StoreProducts() {
             )}
 
             <div className="store-cart-total">
+              <span>Subtotal</span>
+              <strong>${(cartSubtotal / 100).toFixed(2)}</strong>
+            </div>
+
+            <div className="store-cart-total">
+              <span>Tax ({settings.tax_state})</span>
+              <strong>${(taxCents / 100).toFixed(2)}</strong>
+            </div>
+
+            <div className="store-cart-total">
+              <span>Shipping</span>
+              <strong>${(shippingCents / 100).toFixed(2)}</strong>
+            </div>
+
+            <div className="store-cart-total final-total">
               <span>Total</span>
               <strong>${(cartTotal / 100).toFixed(2)}</strong>
             </div>
