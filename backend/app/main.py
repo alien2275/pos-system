@@ -1,9 +1,11 @@
 import os
 import secrets
 import uuid
+from io import BytesIO
 from typing import Literal, Optional, List
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
+from openpyxl import load_workbook
 from pydantic import BaseModel
 from sqlalchemy import create_engine, text
 from fastapi.middleware.cors import CORSMiddleware
@@ -57,6 +59,48 @@ def generate_order_number(conn):
             return order_number
 
     raise HTTPException(status_code=500, detail="Could not generate order number")
+
+
+def normalize_import_header(value):
+    return str(value or "").strip().lower()
+
+
+def clean_cell(value):
+    if value is None:
+        return None
+
+    if isinstance(value, str):
+        value = value.strip()
+        return value or None
+
+    return value
+
+
+def parse_import_money(value, row_number, field_name):
+    value = clean_cell(value)
+
+    if value is None:
+        return 0
+
+    try:
+        if isinstance(value, str):
+            value = value.replace("$", "").replace(",", "")
+
+        return int(round(float(value) * 100))
+    except (TypeError, ValueError):
+        raise ValueError(f"Row {row_number}: {field_name} must be a number")
+
+
+def parse_import_int(value, row_number, field_name):
+    value = clean_cell(value)
+
+    if value is None:
+        return 0
+
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        raise ValueError(f"Row {row_number}: {field_name} must be a whole number")
 
 
 class ProductCreate(BaseModel):
@@ -1094,6 +1138,145 @@ def get_inactive_product_match(sku: str = "", barcode: str = ""):
         raise HTTPException(status_code=404, detail="No inactive product found")
 
     return dict(result._mapping)
+
+
+@app.post("/products/import")
+async def import_products(file: UploadFile = File(...)):
+    if not file.filename or not file.filename.lower().endswith(".xlsx"):
+        raise HTTPException(status_code=400, detail="Upload an .xlsx file")
+
+    contents = await file.read()
+
+    try:
+        workbook = load_workbook(filename=BytesIO(contents), data_only=True)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Could not read Excel file") from exc
+
+    sheet = workbook.active
+    rows = list(sheet.iter_rows(values_only=True))
+
+    if not rows:
+        raise HTTPException(status_code=400, detail="Excel file is empty")
+
+    headers = [normalize_import_header(value) for value in rows[0]]
+    required_headers = [
+        "sku",
+        "barcode",
+        "name",
+        "category",
+        "description",
+        "public store description",
+        "price",
+        "cost",
+        "quantity",
+        "reorder level",
+    ]
+
+    missing_headers = [header for header in required_headers if header not in headers]
+
+    if missing_headers:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Missing columns: {', '.join(missing_headers)}",
+        )
+
+    header_indexes = {
+        header: headers.index(header)
+        for header in required_headers
+    }
+
+    imported = 0
+    errors = []
+
+    with engine.begin() as conn:
+        for index, row in enumerate(rows[1:], start=2):
+            if not any(clean_cell(value) is not None for value in row):
+                continue
+
+            try:
+                name = clean_cell(row[header_indexes["name"]])
+
+                if not name:
+                    raise ValueError(f"Row {index}: name is required")
+
+                product_data = {
+                    "sku": clean_cell(row[header_indexes["sku"]]),
+                    "barcode": clean_cell(row[header_indexes["barcode"]]),
+                    "name": name,
+                    "category": clean_cell(row[header_indexes["category"]]),
+                    "description": clean_cell(row[header_indexes["description"]]),
+                    "public_description": clean_cell(
+                        row[header_indexes["public store description"]]
+                    ),
+                    "price_cents": parse_import_money(
+                        row[header_indexes["price"]],
+                        index,
+                        "price",
+                    ),
+                    "cost_cents": parse_import_money(
+                        row[header_indexes["cost"]],
+                        index,
+                        "cost",
+                    ),
+                    "quantity_on_hand": parse_import_int(
+                        row[header_indexes["quantity"]],
+                        index,
+                        "quantity",
+                    ),
+                    "reorder_level": parse_import_int(
+                        row[header_indexes["reorder level"]],
+                        index,
+                        "reorder level",
+                    ),
+                    "image_url": None,
+                    "is_public": False,
+                }
+
+                conn.execute(
+                    text(
+                        """
+                        INSERT INTO products
+                        (
+                            sku,
+                            barcode,
+                            name,
+                            category,
+                            description,
+                            price_cents,
+                            cost_cents,
+                            quantity_on_hand,
+                            reorder_level,
+                            image_url,
+                            public_description,
+                            is_public
+                        )
+                        VALUES
+                        (
+                            :sku,
+                            :barcode,
+                            :name,
+                            :category,
+                            :description,
+                            :price_cents,
+                            :cost_cents,
+                            :quantity_on_hand,
+                            :reorder_level,
+                            :image_url,
+                            :public_description,
+                            :is_public
+                        );
+                        """
+                    ),
+                    product_data,
+                )
+                imported += 1
+            except Exception as exc:
+                errors.append(str(exc))
+
+    return {
+        "imported": imported,
+        "errors": errors,
+    }
 
 
 @app.get("/products/barcode/{barcode}")

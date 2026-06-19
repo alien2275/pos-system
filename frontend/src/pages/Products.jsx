@@ -6,6 +6,9 @@ function Products() {
   const [editingProductId, setEditingProductId] = useState(null);
   const [imageFile, setImageFile] = useState(null);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const [importFile, setImportFile] = useState(null);
+  const [isImporting, setIsImporting] = useState(false);
+  const [importResult, setImportResult] = useState(null);
 
   const emptyForm = {
     sku: "",
@@ -307,6 +310,43 @@ function Products() {
       });
   }
 
+  async function importProducts(event) {
+    event.preventDefault();
+
+    if (!importFile) {
+      alert("Choose an Excel file first");
+      return;
+    }
+
+    const importData = new FormData();
+    importData.append("file", importFile);
+    setIsImporting(true);
+    setImportResult(null);
+
+    try {
+      const response = await fetch(`${API_URL}/products/import`, {
+        method: "POST",
+        body: importData,
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        alert(data.detail || "Product import failed");
+        return;
+      }
+
+      setImportResult(data);
+      setImportFile(null);
+      loadProducts();
+    } catch (err) {
+      console.error(err);
+      alert("Product import failed");
+    } finally {
+      setIsImporting(false);
+    }
+  }
+
   return (
     <div className="admin-page">
       <header className="admin-page-header">
@@ -494,6 +534,44 @@ function Products() {
               </button>
             )}
           </div>
+        </form>
+      </section>
+
+      <section className="admin-panel">
+        <h2>Bulk Import</h2>
+        <form className="admin-form" onSubmit={importProducts}>
+          <div className="upload-panel">
+            <div>
+              <strong>Excel Product Import</strong>
+              <p>
+                Headers: sku, barcode, name, category, description, public store
+                description, price, cost, quantity, reorder level
+              </p>
+            </div>
+            <input
+              type="file"
+              accept=".xlsx"
+              onChange={(event) => setImportFile(event.target.files[0] || null)}
+            />
+            <button type="submit" disabled={!importFile || isImporting}>
+              {isImporting ? "Importing..." : "Import Products"}
+            </button>
+          </div>
+
+          {importResult && (
+            <div className="selected-summary">
+              <span>{importResult.imported} products imported</span>
+              <span>{importResult.errors.length} row errors</span>
+            </div>
+          )}
+
+          {importResult?.errors.length > 0 && (
+            <div className="import-errors">
+              {importResult.errors.map((error) => (
+                <p key={error}>{error}</p>
+              ))}
+            </div>
+          )}
         </form>
       </section>
 

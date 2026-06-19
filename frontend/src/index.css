@@ -390,6 +390,16 @@ button:disabled {
   background: var(--social-bg);
 }
 
+.import-errors {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid var(--accent-border);
+  border-radius: 8px;
+  color: var(--text-h);
+  background: var(--accent-bg);
+}
+
 .checkout-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
