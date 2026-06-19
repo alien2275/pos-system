@@ -12,6 +12,7 @@ function Checkout() {
     tax_state: "MD",
     tax_rate_percent: "6.00",
     flat_shipping_cents: 0,
+    store_url: "http://100.85.171.19:5173/store",
   });
 
   useEffect(() => {
@@ -184,7 +185,8 @@ function Checkout() {
           ? `Cash Received: $${Number(lastSale.cashReceived || 0).toFixed(
               2
             )}\nChange Due: $${lastSale.changeDue.toFixed(2)}\n`
-          : "")
+          : "") +
+        `\nSee upcoming events and shop online:\n${settings.store_url}\n`
     );
 
     window.location.href = `mailto:?subject=${subject}&body=${body}`;
@@ -257,6 +259,19 @@ function Checkout() {
               </p>
               <p>Change Due: ${lastSale.changeDue.toFixed(2)}</p>
             </>
+          )}
+
+          {settings.store_url && (
+            <div className="receipt-qr">
+              <img
+                src={`${API_URL}/settings/store-qr.png?v=${encodeURIComponent(
+                  settings.store_url
+                )}`}
+                alt="Store QR code"
+              />
+              <p>Scan for upcoming events and online shopping.</p>
+              <small>{settings.store_url}</small>
+            </div>
           )}
 
           <div className="button-row">

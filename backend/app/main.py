@@ -56,6 +56,7 @@ DEFAULT_SETTINGS = {
     "tax_state": "MD",
     "tax_rate_percent": "6.00",
     "flat_shipping_cents": "600",
+    "store_url": "http://100.85.171.19:5173/store",
 }
 
 
@@ -87,6 +88,7 @@ def get_app_settings(conn):
         "tax_state": settings["tax_state"],
         "tax_rate_percent": str(tax_rate.quantize(Decimal("0.01"))),
         "flat_shipping_cents": flat_shipping_cents,
+        "store_url": settings["store_url"],
     }
 
 
@@ -367,6 +369,7 @@ class AppSettingsUpdate(BaseModel):
     tax_state: Optional[str] = None
     tax_rate_percent: Optional[Decimal] = None
     flat_shipping_cents: Optional[int] = None
+    store_url: Optional[str] = None
 
 
 class EventCreate(BaseModel):
@@ -703,6 +706,15 @@ def update_settings(settings_update: AppSettingsUpdate):
     if "tax_state" in fields:
         fields["tax_state"] = fields["tax_state"].strip().upper()[:20] or "MD"
 
+    if "store_url" in fields:
+        store_url = fields["store_url"].strip()
+        if not store_url.startswith(("http://", "https://")):
+            raise HTTPException(
+                status_code=400,
+                detail="Store URL must start with http:// or https://",
+            )
+        fields["store_url"] = store_url
+
     with engine.begin() as conn:
         for key, value in fields.items():
             conn.execute(
@@ -719,6 +731,33 @@ def update_settings(settings_update: AppSettingsUpdate):
             )
 
         return get_app_settings(conn)
+
+
+@app.get("/settings/store-qr.png")
+def get_store_qr_code(url: Optional[str] = None):
+    if url:
+        store_url = url.strip()
+        if not store_url.startswith(("http://", "https://")):
+            raise HTTPException(
+                status_code=400,
+                detail="Store URL must start with http:// or https://",
+            )
+    else:
+        with engine.connect() as conn:
+            store_url = get_app_settings(conn)["store_url"]
+
+    import qrcode
+
+    qr_image = qrcode.make(store_url)
+    buffer = BytesIO()
+    qr_image.save(buffer, format="PNG")
+    buffer.seek(0)
+
+    return Response(
+        buffer.getvalue(),
+        media_type="image/png",
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @app.get("/reports/tax-summary.pdf")

@@ -6,6 +6,7 @@ function Settings() {
     tax_state: "MD",
     tax_rate_percent: "6.00",
     flat_shipping: "6.00",
+    store_url: "http://100.85.171.19:5173/store",
   });
   const today = new Date().toISOString().split("T")[0];
   const [reportRange, setReportRange] = useState({
@@ -22,6 +23,7 @@ function Settings() {
           tax_state: data.tax_state || "MD",
           tax_rate_percent: data.tax_rate_percent || "6.00",
           flat_shipping: ((data.flat_shipping_cents || 0) / 100).toFixed(2),
+          store_url: data.store_url || "http://100.85.171.19:5173/store",
         });
       })
       .catch((err) => console.error(err));
@@ -48,6 +50,7 @@ function Settings() {
         tax_state: form.tax_state,
         tax_rate_percent: Number(form.tax_rate_percent || 0),
         flat_shipping_cents: Math.round(Number(form.flat_shipping || 0) * 100),
+        store_url: form.store_url,
       }),
     });
 
@@ -62,6 +65,7 @@ function Settings() {
       tax_state: data.tax_state,
       tax_rate_percent: data.tax_rate_percent,
       flat_shipping: (data.flat_shipping_cents / 100).toFixed(2),
+      store_url: data.store_url,
     });
     setMessage("Settings saved.");
   }
@@ -127,6 +131,26 @@ function Settings() {
                 onChange={updateField}
               />
             </label>
+
+            <label className="form-full">
+              Store URL For Receipts
+              <input
+                name="store_url"
+                value={form.store_url}
+                onChange={updateField}
+                placeholder="https://your-store.example.com/store"
+              />
+            </label>
+          </div>
+
+          <div className="settings-qr-preview">
+            <img
+              src={`${API_URL}/settings/store-qr.png?url=${encodeURIComponent(
+                form.store_url
+              )}`}
+              alt="Store QR preview"
+            />
+            <p>Receipts will point customers here for products and events.</p>
           </div>
 
           <div className="button-row">

@@ -476,6 +476,46 @@ button:disabled {
   font-weight: 700;
 }
 
+.receipt-qr {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  margin: 12px auto 0;
+  max-width: 220px;
+}
+
+.receipt-qr img {
+  width: 120px;
+  height: 120px;
+  image-rendering: pixelated;
+}
+
+.receipt-qr p,
+.receipt-qr small {
+  margin: 0;
+}
+
+.receipt-qr small {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  color: var(--text);
+}
+
+.settings-qr-preview {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.settings-qr-preview img {
+  width: 96px;
+  height: 96px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: white;
+}
+
 .product-image-preview {
   position: relative;
   display: inline-block;
@@ -1096,6 +1136,15 @@ button:disabled {
   .receipt td {
     font-size: 12px;
     padding: 2px;
+  }
+
+  .receipt-qr img {
+    width: 28mm;
+    height: 28mm;
+  }
+
+  .receipt-qr small {
+    color: black;
   }
 
   body {
