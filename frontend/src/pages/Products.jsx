@@ -119,6 +119,12 @@ function Products() {
             return;
           }
 
+          const reactivatedProduct = await reactivateRes.json();
+
+          if (imageFile) {
+            await uploadProductImage(reactivatedProduct.id);
+          }
+
           setForm(emptyForm);
           setEditingProductId(null);
           setImageFile(null);
@@ -159,18 +165,27 @@ function Products() {
           return;
         }
 
+        let savedProduct = data;
+
+        if (imageFile) {
+          const uploadedProduct = await uploadProductImage(data.id);
+          savedProduct = uploadedProduct || data;
+        }
+
         setForm(emptyForm);
         setEditingProductId(null);
         setImageFile(null);
         setProducts((currentProducts) => {
-          const exists = currentProducts.some((product) => product.id === data.id);
+          const exists = currentProducts.some(
+            (product) => product.id === savedProduct.id
+          );
 
           if (!exists) {
-            return [...currentProducts, data];
+            return [...currentProducts, savedProduct];
           }
 
           return currentProducts.map((product) =>
-            product.id === data.id ? data : product
+            product.id === savedProduct.id ? savedProduct : product
           );
         });
         loadProducts();
@@ -207,10 +222,9 @@ function Products() {
     setImageFile(null);
   }
 
-  async function uploadImage() {
-    if (!editingProductId || !imageFile) {
-      alert("Select an image after saving the product first");
-      return;
+  async function uploadProductImage(productId) {
+    if (!productId || !imageFile) {
+      return null;
     }
 
     const imageData = new FormData();
@@ -218,7 +232,7 @@ function Products() {
     setIsUploadingImage(true);
 
     try {
-      const uploadUrl = `${API_URL}/products/${editingProductId}/image`;
+      const uploadUrl = `${API_URL}/products/${productId}/image`;
       const response = await fetch(uploadUrl, {
         method: "POST",
         body: imageData,
@@ -247,13 +261,26 @@ function Products() {
           product.id === data.id ? data : product
         )
       );
-      setImageFile(null);
-      loadProducts();
+      return data;
     } catch (err) {
       console.error(err);
       alert("Image upload failed");
     } finally {
       setIsUploadingImage(false);
+    }
+  }
+
+  async function uploadImage() {
+    if (!editingProductId || !imageFile) {
+      alert("Choose an image first");
+      return;
+    }
+
+    const data = await uploadProductImage(editingProductId);
+
+    if (data) {
+      setImageFile(null);
+      loadProducts();
     }
   }
 
@@ -368,14 +395,22 @@ function Products() {
           </div>
         )}
 
-        {editingProductId && (
-          <div className="upload-panel">
-            <input
-              type="file"
-              accept="image/*"
-              onChange={(event) => setImageFile(event.target.files[0] || null)}
-            />
+        <div className="upload-panel">
+          <div>
+            <strong>Product Image</strong>
+            <p>
+              {editingProductId
+                ? "Choose a file and upload it now."
+                : "Choose a file now and it will upload after the product is added."}
+            </p>
+          </div>
+          <input
+            type="file"
+            accept="image/*"
+            onChange={(event) => setImageFile(event.target.files[0] || null)}
+          />
 
+          {editingProductId && (
             <button
               type="button"
               onClick={uploadImage}
@@ -383,6 +418,12 @@ function Products() {
             >
               {isUploadingImage ? "Uploading..." : "Upload Image"}
             </button>
+          )}
+        </div>
+
+        {imageFile && !editingProductId && (
+          <div className="upload-panel">
+            Selected image: {imageFile.name}
           </div>
         )}
 

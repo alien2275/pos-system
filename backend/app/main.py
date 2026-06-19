@@ -148,6 +148,44 @@ def ensure_event_table():
                 """
             )
         )
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS online_orders (
+                    id SERIAL PRIMARY KEY,
+                    customer_name TEXT,
+                    customer_email TEXT,
+                    shipping_name TEXT,
+                    shipping_address_line1 TEXT,
+                    shipping_address_line2 TEXT,
+                    shipping_city TEXT,
+                    shipping_state TEXT,
+                    shipping_postal_code TEXT,
+                    shipping_country TEXT,
+                    payment_provider TEXT,
+                    payment_reference TEXT,
+                    status TEXT NOT NULL DEFAULT 'pending_fulfillment',
+                    total_cents INTEGER NOT NULL DEFAULT 0,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS online_order_items (
+                    id SERIAL PRIMARY KEY,
+                    order_id INTEGER NOT NULL REFERENCES online_orders(id) ON DELETE CASCADE,
+                    product_id INTEGER REFERENCES products(id),
+                    product_name TEXT NOT NULL,
+                    quantity INTEGER NOT NULL,
+                    price_cents INTEGER NOT NULL
+                );
+                """
+            )
+        )
     
 
 @app.get("/")
@@ -681,9 +719,22 @@ def get_dashboard():
             )
         ).first()
 
+        online_order_summary = conn.execute(
+            text(
+                """
+                SELECT
+                    COUNT(*) FILTER (
+                        WHERE status IN ('pending_fulfillment', 'paid')
+                    ) AS pending_fulfillment_count
+                FROM online_orders;
+                """
+            )
+        ).first()
+
     return {
         "products": dict(product_summary._mapping),
         "sales": dict(sales_summary._mapping),
+        "online_orders": dict(online_order_summary._mapping),
     }
 
 

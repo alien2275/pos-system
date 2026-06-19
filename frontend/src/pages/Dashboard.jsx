@@ -48,6 +48,12 @@ function Dashboard() {
           <strong>${(dashboard.sales.today_revenue_cents / 100).toFixed(2)}</strong>
           <p>Total sales today</p>
         </article>
+
+        <article className="metric-card">
+          <span>Online Orders</span>
+          <strong>{dashboard.online_orders?.pending_fulfillment_count || 0}</strong>
+          <p>Need packaging or shipping</p>
+        </article>
       </section>
     </div>
   );
