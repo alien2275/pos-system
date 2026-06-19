@@ -544,6 +544,13 @@ button:disabled {
   gap: 20px;
 }
 
+.store-shop-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
+  gap: 22px;
+  align-items: start;
+}
+
 .store-product {
   overflow: hidden;
   border: 1px solid var(--border);
@@ -600,6 +607,89 @@ button:disabled {
 .store-product-footer span {
   color: var(--text);
   font-size: 14px;
+}
+
+.store-cart {
+  position: sticky;
+  top: 24px;
+  display: grid;
+  gap: 16px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-bg);
+}
+
+.store-cart h2 {
+  margin: 0;
+}
+
+.store-cart-items {
+  display: grid;
+  gap: 12px;
+}
+
+.store-cart-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 72px;
+  gap: 10px;
+  align-items: center;
+}
+
+.store-cart-item input,
+.store-checkout-form input {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 38px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-h);
+  background: var(--bg);
+}
+
+.store-cart-total {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  color: var(--text-h);
+}
+
+.store-checkout-form {
+  display: grid;
+  gap: 10px;
+}
+
+.store-payment-placeholder,
+.store-order-message {
+  padding: 10px 12px;
+  border: 1px solid var(--accent-border);
+  border-radius: 6px;
+  color: var(--text-h);
+  background: var(--accent-bg);
+}
+
+.order-card {
+  display: grid;
+  gap: 14px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+}
+
+.order-card h3 {
+  margin: 0;
+  color: var(--text-h);
+}
+
+.order-card-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
 }
 
 .store-events-section {
@@ -820,11 +910,14 @@ button:disabled {
   }
 
   .form-grid,
-  .checkout-layout {
+  .checkout-layout,
+  .store-shop-layout,
+  .order-card-grid {
     grid-template-columns: 1fr;
   }
 
-  .checkout-summary {
+  .checkout-summary,
+  .store-cart {
     position: static;
   }
 

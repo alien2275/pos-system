@@ -16,6 +16,7 @@ app.add_middleware(
         "http://100.85.171.19:5173",
         "http://localhost:5173",
     ],
+    allow_origin_regex=r"http://.*:5173",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -115,6 +116,31 @@ class EventUpdate(BaseModel):
     is_public: Optional[bool] = None
 
 
+class OnlineOrderItemCreate(BaseModel):
+    product_id: int
+    quantity: int
+
+
+class OnlineOrderCreate(BaseModel):
+    customer_name: str
+    customer_email: str
+    shipping_name: str
+    shipping_address_line1: str
+    shipping_address_line2: Optional[str] = None
+    shipping_city: str
+    shipping_state: str
+    shipping_postal_code: str
+    shipping_country: str = "US"
+    payment_provider: str = "placeholder"
+    payment_reference: Optional[str] = None
+    items: List[OnlineOrderItemCreate]
+
+
+class OnlineOrderShipmentUpdate(BaseModel):
+    carrier: Literal["USPS", "UPS", "FedEx", "Other"]
+    tracking_id: str
+
+
 @app.on_event("startup")
 def ensure_event_table():
     with engine.begin() as conn:
@@ -164,11 +190,33 @@ def ensure_event_table():
                     shipping_country TEXT,
                     payment_provider TEXT,
                     payment_reference TEXT,
-                    status TEXT NOT NULL DEFAULT 'pending_fulfillment',
+                    carrier TEXT,
+                    tracking_id TEXT,
+                    status TEXT NOT NULL DEFAULT 'pending_packaging',
                     total_cents INTEGER NOT NULL DEFAULT 0,
+                    packaged_at TIMESTAMP,
+                    shipped_at TIMESTAMP,
                     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
                 );
+                """
+            )
+        )
+        conn.execute(text("ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS carrier TEXT;"))
+        conn.execute(text("ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS tracking_id TEXT;"))
+        conn.execute(text("ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS packaged_at TIMESTAMP;"))
+        conn.execute(text("ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS shipped_at TIMESTAMP;"))
+        conn.execute(
+            text(
+                "ALTER TABLE online_orders ALTER COLUMN status SET DEFAULT 'pending_packaging';"
+            )
+        )
+        conn.execute(
+            text(
+                """
+                UPDATE online_orders
+                SET status = 'pending_packaging'
+                WHERE status = 'pending_fulfillment';
                 """
             )
         )
@@ -246,6 +294,147 @@ def get_store_products():
         ]
 
 
+@app.post("/store/orders")
+def create_store_order(order: OnlineOrderCreate):
+    if not order.items:
+        raise HTTPException(status_code=400, detail="Order must contain at least one item")
+
+    with engine.begin() as conn:
+        total_cents = 0
+        order_items = []
+
+        for item in order.items:
+            if item.quantity <= 0:
+                raise HTTPException(status_code=400, detail="Quantity must be greater than zero")
+
+            product = conn.execute(
+                text(
+                    """
+                    SELECT *
+                    FROM products
+                    WHERE id = :id
+                      AND is_active = TRUE
+                      AND is_public = TRUE;
+                    """
+                ),
+                {"id": item.product_id},
+            ).first()
+
+            if product is None:
+                raise HTTPException(status_code=404, detail="Product not found")
+
+            product_data = dict(product._mapping)
+
+            if product_data["quantity_on_hand"] < item.quantity:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Not enough inventory for {product_data['name']}",
+                )
+
+            line_total = product_data["price_cents"] * item.quantity
+            total_cents += line_total
+            order_items.append(
+                {
+                    "product_id": item.product_id,
+                    "product_name": product_data["name"],
+                    "quantity": item.quantity,
+                    "price_cents": product_data["price_cents"],
+                }
+            )
+
+        order_row = conn.execute(
+            text(
+                """
+                INSERT INTO online_orders
+                (
+                    customer_name,
+                    customer_email,
+                    shipping_name,
+                    shipping_address_line1,
+                    shipping_address_line2,
+                    shipping_city,
+                    shipping_state,
+                    shipping_postal_code,
+                    shipping_country,
+                    payment_provider,
+                    payment_reference,
+                    status,
+                    total_cents
+                )
+                VALUES
+                (
+                    :customer_name,
+                    :customer_email,
+                    :shipping_name,
+                    :shipping_address_line1,
+                    :shipping_address_line2,
+                    :shipping_city,
+                    :shipping_state,
+                    :shipping_postal_code,
+                    :shipping_country,
+                    :payment_provider,
+                    :payment_reference,
+                    'pending_packaging',
+                    :total_cents
+                )
+                RETURNING *;
+                """
+            ),
+            {
+                **order.model_dump(exclude={"items"}),
+                "total_cents": total_cents,
+            },
+        ).first()
+
+        order_id = order_row._mapping["id"]
+
+        for item in order_items:
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO online_order_items
+                    (order_id, product_id, product_name, quantity, price_cents)
+                    VALUES
+                    (:order_id, :product_id, :product_name, :quantity, :price_cents);
+                    """
+                ),
+                {"order_id": order_id, **item},
+            )
+
+            conn.execute(
+                text(
+                    """
+                    UPDATE products
+                    SET quantity_on_hand = quantity_on_hand - :quantity,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = :product_id;
+                    """
+                ),
+                item,
+            )
+
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO inventory_transactions
+                    (product_id, quantity_change, reason, notes)
+                    VALUES
+                    (:product_id, :quantity_change, 'Sale', :notes);
+                    """
+                ),
+                {
+                    "product_id": item["product_id"],
+                    "quantity_change": -item["quantity"],
+                    "notes": f"Online order #{order_id}",
+                },
+            )
+
+    return {
+        "order": dict(order_row._mapping),
+        "items": order_items,
+    }
+
+
 @app.get("/store/events")
 def get_store_events():
     with engine.connect() as conn:
@@ -296,6 +485,113 @@ def get_events():
         )
 
         return [dict(row._mapping) for row in result]
+
+
+@app.get("/online-orders")
+def get_online_orders():
+    with engine.connect() as conn:
+        orders = conn.execute(
+            text(
+                """
+                SELECT *
+                FROM online_orders
+                ORDER BY
+                    CASE status
+                        WHEN 'pending_packaging' THEN 1
+                        WHEN 'packaged' THEN 2
+                        WHEN 'shipped' THEN 3
+                        ELSE 4
+                    END,
+                    created_at DESC;
+                """
+            )
+        )
+
+        order_rows = [dict(row._mapping) for row in orders]
+
+        if not order_rows:
+            return []
+
+        items = conn.execute(
+            text(
+                """
+                SELECT *
+                FROM online_order_items
+                WHERE order_id IN (
+                    SELECT id
+                    FROM online_orders
+                )
+                ORDER BY id;
+                """
+            )
+        )
+
+        items_by_order = {}
+        for row in items:
+            item = dict(row._mapping)
+            items_by_order.setdefault(item["order_id"], []).append(item)
+
+        return [
+            {
+                **order,
+                "items": items_by_order.get(order["id"], []),
+            }
+            for order in order_rows
+        ]
+
+
+@app.put("/online-orders/{order_id}/packaged")
+def mark_online_order_packaged(order_id: int):
+    with engine.begin() as conn:
+        result = conn.execute(
+            text(
+                """
+                UPDATE online_orders
+                SET status = 'packaged',
+                    packaged_at = COALESCE(packaged_at, CURRENT_TIMESTAMP),
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = :id
+                RETURNING *;
+                """
+            ),
+            {"id": order_id},
+        ).first()
+
+    if result is None:
+        raise HTTPException(status_code=404, detail="Online order not found")
+
+    return dict(result._mapping)
+
+
+@app.put("/online-orders/{order_id}/ship")
+def mark_online_order_shipped(order_id: int, shipment: OnlineOrderShipmentUpdate):
+    fields = shipment.model_dump()
+
+    if not fields["tracking_id"].strip():
+        raise HTTPException(status_code=400, detail="Tracking ID is required")
+
+    with engine.begin() as conn:
+        result = conn.execute(
+            text(
+                """
+                UPDATE online_orders
+                SET status = 'shipped',
+                    carrier = :carrier,
+                    tracking_id = :tracking_id,
+                    packaged_at = COALESCE(packaged_at, CURRENT_TIMESTAMP),
+                    shipped_at = CURRENT_TIMESTAMP,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = :id
+                RETURNING *;
+                """
+            ),
+            {"id": order_id, **fields},
+        ).first()
+
+    if result is None:
+        raise HTTPException(status_code=404, detail="Online order not found")
+
+    return dict(result._mapping)
 
 
 @app.get("/events/{event_id}/images")
@@ -724,7 +1020,7 @@ def get_dashboard():
                 """
                 SELECT
                     COUNT(*) FILTER (
-                        WHERE status IN ('pending_fulfillment', 'paid')
+                        WHERE status IN ('pending_packaging', 'packaged')
                     ) AS pending_fulfillment_count
                 FROM online_orders;
                 """
