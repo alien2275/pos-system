@@ -6,6 +6,7 @@ import Checkout from "./pages/Checkout";
 import Sales from "./pages/Sales";
 import Events from "./pages/Events";
 import Orders from "./pages/Orders";
+import OrderDetail from "./pages/OrderDetail";
 import Store from "./pages/Store";
 import StoreProducts from "./pages/StoreProducts";
 
@@ -41,6 +42,7 @@ function AdminLayout() {
           <Route path="/checkout" element={<Checkout />} />
           <Route path="/sales" element={<Sales />} />
           <Route path="/orders" element={<Orders />} />
+          <Route path="/orders/:orderId" element={<OrderDetail />} />
           <Route path="/events" element={<Events />} />
         </Routes>
       </main>

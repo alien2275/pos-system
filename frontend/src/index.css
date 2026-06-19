@@ -129,6 +129,10 @@ button {
   cursor: pointer;
 }
 
+a {
+  color: var(--text-h);
+}
+
 button:disabled {
   cursor: not-allowed;
   opacity: 0.55;
@@ -717,6 +721,34 @@ button:disabled {
   gap: 18px;
 }
 
+.order-timeline {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.order-timeline div {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+}
+
+.order-timeline div.active {
+  border-color: var(--accent-border);
+  background: var(--accent-bg);
+}
+
+.order-timeline span {
+  font-size: 14px;
+}
+
+.packing-slip {
+  gap: 20px;
+}
+
 .store-events-section {
   display: grid;
   gap: 18px;
@@ -937,7 +969,8 @@ button:disabled {
   .form-grid,
   .checkout-layout,
   .store-shop-layout,
-  .order-card-grid {
+  .order-card-grid,
+  .order-timeline {
     grid-template-columns: 1fr;
   }
 
@@ -978,6 +1011,28 @@ button:disabled {
   .no-print,
   button {
     display: none !important;
+  }
+
+  #root {
+    width: 100%;
+    border: none;
+  }
+
+  .admin-main {
+    padding: 0;
+  }
+
+  .admin-panel {
+    border: none;
+    background: white;
+    color: black;
+    box-shadow: none;
+  }
+
+  .admin-table th,
+  .admin-table td {
+    color: black;
+    border-color: #999;
   }
 
   .receipt {

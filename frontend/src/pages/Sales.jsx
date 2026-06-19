@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { API_URL } from "../config";
 
 function Sales() {
@@ -195,6 +196,9 @@ function Sales() {
             <div className="selected-summary">
               <span>Online Order #{selectedSale.online_order.id}</span>
               <span>Status: {selectedSale.online_order.status}</span>
+              <Link to={`/orders/${selectedSale.online_order.id}`}>
+                Order Details
+              </Link>
               {selectedSale.online_order.carrier &&
                 selectedSale.online_order.tracking_id && (
                   <span>

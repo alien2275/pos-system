@@ -695,6 +695,44 @@ def get_online_orders(include_archived: bool = False):
         ]
 
 
+@app.get("/online-orders/{order_id}")
+def get_online_order(order_id: int):
+    with engine.connect() as conn:
+        order = conn.execute(
+            text(
+                """
+                SELECT
+                    online_orders.*,
+                    sales.order_number
+                FROM online_orders
+                LEFT JOIN sales ON sales.id = online_orders.sale_id
+                WHERE online_orders.id = :id;
+                """
+            ),
+            {"id": order_id},
+        ).first()
+
+        if order is None:
+            raise HTTPException(status_code=404, detail="Online order not found")
+
+        items = conn.execute(
+            text(
+                """
+                SELECT *
+                FROM online_order_items
+                WHERE order_id = :order_id
+                ORDER BY id;
+                """
+            ),
+            {"order_id": order_id},
+        )
+
+        return {
+            **dict(order._mapping),
+            "items": [dict(row._mapping) for row in items],
+        }
+
+
 @app.put("/online-orders/{order_id}/packaged")
 def mark_online_order_packaged(order_id: int):
     with engine.begin() as conn:
