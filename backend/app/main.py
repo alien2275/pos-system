@@ -10,6 +10,10 @@ from fastapi import FastAPI, File, HTTPException, Response, UploadFile
 from openpyxl import load_workbook
 from openpyxl import Workbook
 from pydantic import BaseModel
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import letter
+from reportlab.lib.units import inch
+from reportlab.pdfgen import canvas
 from sqlalchemy import create_engine, text
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -93,6 +97,17 @@ def calculate_tax_cents(amount_cents, tax_rate_percent):
         rounding=ROUND_HALF_UP,
     )
     return int(tax)
+
+
+def format_money(cents):
+    return f"${(int(cents or 0) / 100):,.2f}"
+
+
+def draw_pdf_row(pdf, y, label, value, bold=False):
+    pdf.setFont("Helvetica-Bold" if bold else "Helvetica", 10)
+    pdf.drawString(0.75 * inch, y, label)
+    pdf.drawRightString(7.75 * inch, y, str(value))
+    return y - 0.24 * inch
 
 
 def normalize_import_header(value):
@@ -704,6 +719,141 @@ def update_settings(settings_update: AppSettingsUpdate):
             )
 
         return get_app_settings(conn)
+
+
+@app.get("/reports/tax-summary.pdf")
+def download_tax_summary_report(start_date: str, end_date: str):
+    with engine.connect() as conn:
+        summary = conn.execute(
+            text(
+                """
+                SELECT
+                    COUNT(*) AS transaction_count,
+                    COALESCE(SUM(COALESCE(sales.subtotal_cents, sales.total_cents)), 0) AS taxable_sales_cents,
+                    COALESCE(SUM(sales.tax_cents), 0) AS tax_collected_cents,
+                    COALESCE(SUM(COALESCE(online_orders.shipping_cents, 0)), 0) AS shipping_collected_cents,
+                    COALESCE(SUM(sales.total_cents), 0) AS gross_receipts_cents
+                FROM sales
+                LEFT JOIN online_orders ON online_orders.sale_id = sales.id
+                WHERE sales.created_at >= CAST(:start_date AS date)
+                  AND sales.created_at < (CAST(:end_date AS date) + INTERVAL '1 day');
+                """
+            ),
+            {"start_date": start_date, "end_date": end_date},
+        ).first()
+
+        by_type = conn.execute(
+            text(
+                """
+                SELECT
+                    CASE WHEN online_orders.id IS NULL THEN 'POS' ELSE 'Online' END AS sale_type,
+                    COUNT(*) AS transaction_count,
+                    COALESCE(SUM(COALESCE(sales.subtotal_cents, sales.total_cents)), 0) AS taxable_sales_cents,
+                    COALESCE(SUM(sales.tax_cents), 0) AS tax_collected_cents,
+                    COALESCE(SUM(COALESCE(online_orders.shipping_cents, 0)), 0) AS shipping_collected_cents,
+                    COALESCE(SUM(sales.total_cents), 0) AS gross_receipts_cents
+                FROM sales
+                LEFT JOIN online_orders ON online_orders.sale_id = sales.id
+                WHERE sales.created_at >= CAST(:start_date AS date)
+                  AND sales.created_at < (CAST(:end_date AS date) + INTERVAL '1 day')
+                GROUP BY sale_type
+                ORDER BY sale_type;
+                """
+            ),
+            {"start_date": start_date, "end_date": end_date},
+        )
+
+        by_rate = conn.execute(
+            text(
+                """
+                SELECT
+                    COALESCE(sales.tax_rate_percent, 0) AS tax_rate_percent,
+                    COUNT(*) AS transaction_count,
+                    COALESCE(SUM(COALESCE(sales.subtotal_cents, sales.total_cents)), 0) AS taxable_sales_cents,
+                    COALESCE(SUM(sales.tax_cents), 0) AS tax_collected_cents
+                FROM sales
+                WHERE sales.created_at >= CAST(:start_date AS date)
+                  AND sales.created_at < (CAST(:end_date AS date) + INTERVAL '1 day')
+                GROUP BY tax_rate_percent
+                ORDER BY tax_rate_percent;
+                """
+            ),
+            {"start_date": start_date, "end_date": end_date},
+        )
+
+    buffer = BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=letter)
+    width, height = letter
+    y = height - 0.75 * inch
+
+    pdf.setFont("Helvetica-Bold", 18)
+    pdf.drawString(0.75 * inch, y, "sammyinthesky Tax Summary")
+    y -= 0.32 * inch
+    pdf.setFont("Helvetica", 10)
+    pdf.drawString(0.75 * inch, y, f"Reporting period: {start_date} through {end_date}")
+    y -= 0.2 * inch
+    pdf.drawString(0.75 * inch, y, "Generated from POS and online store records.")
+    y -= 0.36 * inch
+
+    pdf.setStrokeColor(colors.lightgrey)
+    pdf.line(0.75 * inch, y, width - 0.75 * inch, y)
+    y -= 0.35 * inch
+
+    summary_data = dict(summary._mapping)
+    pdf.setFont("Helvetica-Bold", 13)
+    pdf.drawString(0.75 * inch, y, "Summary")
+    y -= 0.3 * inch
+    y = draw_pdf_row(pdf, y, "Transactions", summary_data["transaction_count"])
+    y = draw_pdf_row(pdf, y, "Taxable sales", format_money(summary_data["taxable_sales_cents"]))
+    y = draw_pdf_row(pdf, y, "Sales tax collected", format_money(summary_data["tax_collected_cents"]), True)
+    y = draw_pdf_row(pdf, y, "Shipping collected", format_money(summary_data["shipping_collected_cents"]))
+    y = draw_pdf_row(pdf, y, "Gross receipts", format_money(summary_data["gross_receipts_cents"]), True)
+    y -= 0.18 * inch
+
+    pdf.setFont("Helvetica-Bold", 13)
+    pdf.drawString(0.75 * inch, y, "Breakdown By Sale Type")
+    y -= 0.3 * inch
+    for row in by_type:
+        row_data = dict(row._mapping)
+        y = draw_pdf_row(pdf, y, f"{row_data['sale_type']} transactions", row_data["transaction_count"])
+        y = draw_pdf_row(pdf, y, f"{row_data['sale_type']} taxable sales", format_money(row_data["taxable_sales_cents"]))
+        y = draw_pdf_row(pdf, y, f"{row_data['sale_type']} tax collected", format_money(row_data["tax_collected_cents"]))
+        y = draw_pdf_row(pdf, y, f"{row_data['sale_type']} shipping collected", format_money(row_data["shipping_collected_cents"]))
+        y -= 0.08 * inch
+
+    y -= 0.12 * inch
+    pdf.setFont("Helvetica-Bold", 13)
+    pdf.drawString(0.75 * inch, y, "Breakdown By Tax Rate")
+    y -= 0.3 * inch
+    for row in by_rate:
+        row_data = dict(row._mapping)
+        rate = Decimal(row_data["tax_rate_percent"] or 0).quantize(Decimal("0.01"))
+        y = draw_pdf_row(
+            pdf,
+            y,
+            f"{rate}% - {row_data['transaction_count']} transactions",
+            f"{format_money(row_data['taxable_sales_cents'])} taxable / {format_money(row_data['tax_collected_cents'])} tax",
+        )
+
+    y -= 0.25 * inch
+    pdf.setFont("Helvetica", 8)
+    pdf.setFillColor(colors.darkgrey)
+    pdf.drawString(
+        0.75 * inch,
+        y,
+        "For recordkeeping only. Confirm filing requirements with Maryland Tax Connect or a tax professional.",
+    )
+
+    pdf.showPage()
+    pdf.save()
+    buffer.seek(0)
+
+    filename = f"tax-summary-{start_date}-to-{end_date}.pdf"
+    return Response(
+        buffer.getvalue(),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @app.get("/products")

@@ -7,6 +7,11 @@ function Settings() {
     tax_rate_percent: "6.00",
     flat_shipping: "6.00",
   });
+  const today = new Date().toISOString().split("T")[0];
+  const [reportRange, setReportRange] = useState({
+    start_date: today,
+    end_date: today,
+  });
   const [message, setMessage] = useState("");
 
   useEffect(() => {
@@ -59,6 +64,20 @@ function Settings() {
       flat_shipping: (data.flat_shipping_cents / 100).toFixed(2),
     });
     setMessage("Settings saved.");
+  }
+
+  function updateReportRange(event) {
+    const { name, value } = event.target;
+    setReportRange({
+      ...reportRange,
+      [name]: value,
+    });
+  }
+
+  function downloadTaxReport(event) {
+    event.preventDefault();
+    const params = new URLSearchParams(reportRange);
+    window.location.href = `${API_URL}/reports/tax-summary.pdf?${params.toString()}`;
   }
 
   return (
@@ -114,6 +133,36 @@ function Settings() {
             <button type="submit">Save Settings</button>
             {message && <p>{message}</p>}
           </div>
+        </form>
+      </section>
+
+      <section className="admin-panel">
+        <h2>Tax Report PDF</h2>
+
+        <form className="inline-form" onSubmit={downloadTaxReport}>
+          <label>
+            Start Date
+            <input
+              name="start_date"
+              type="date"
+              value={reportRange.start_date}
+              onChange={updateReportRange}
+              required
+            />
+          </label>
+
+          <label>
+            End Date
+            <input
+              name="end_date"
+              type="date"
+              value={reportRange.end_date}
+              onChange={updateReportRange}
+              required
+            />
+          </label>
+
+          <button type="submit">Download Tax Summary</button>
         </form>
       </section>
     </div>
