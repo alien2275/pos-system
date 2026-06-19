@@ -31,6 +31,8 @@ services:
       POSTGRES_USER: Alien2275
       POSTGRES_PASSWORD: Ak8pch1001a
       POSTGRES_HOST: postgres
+    volumes:
+      - ./uploads:/app/uploads
     ports:
       - "8000:8000"
     depends_on:

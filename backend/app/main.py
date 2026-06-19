@@ -1,10 +1,12 @@
 import os
+import uuid
 from typing import Literal, Optional, List
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from pydantic import BaseModel
 from sqlalchemy import create_engine, text
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 app = FastAPI(title="POS API")
 
@@ -18,6 +20,14 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+UPLOAD_ROOT = os.getenv("UPLOAD_ROOT", "uploads")
+PRODUCT_UPLOAD_DIR = os.path.join(UPLOAD_ROOT, "products")
+ALLOWED_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
+MAX_IMAGE_BYTES = 5 * 1024 * 1024
+
+os.makedirs(PRODUCT_UPLOAD_DIR, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=UPLOAD_ROOT), name="uploads")
 
 DB_USER = os.getenv("POSTGRES_USER")
 DB_PASSWORD = os.getenv("POSTGRES_PASSWORD")
@@ -624,6 +634,58 @@ def update_product(product_id: int, product: ProductUpdate):
         )
 
     return dict(result._mapping)
+
+
+@app.post("/products/{product_id}/image")
+async def upload_product_image(product_id: int, file: UploadFile = File(...)):
+    with engine.connect() as conn:
+        product = conn.execute(
+            text("SELECT * FROM products WHERE id = :id;"),
+            {"id": product_id},
+        ).first()
+
+    if product is None:
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    _, extension = os.path.splitext(file.filename or "")
+    extension = extension.lower()
+
+    if extension not in ALLOWED_IMAGE_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail="Image must be a JPG, PNG, WebP, or GIF file",
+        )
+
+    if not file.content_type or not file.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="Uploaded file must be an image")
+
+    contents = await file.read()
+
+    if len(contents) > MAX_IMAGE_BYTES:
+        raise HTTPException(status_code=400, detail="Image must be 5 MB or smaller")
+
+    filename = f"product-{product_id}-{uuid.uuid4().hex}{extension}"
+    disk_path = os.path.join(PRODUCT_UPLOAD_DIR, filename)
+    image_url = f"/uploads/products/{filename}"
+
+    with open(disk_path, "wb") as image_file:
+        image_file.write(contents)
+
+    with engine.begin() as conn:
+        updated_product = conn.execute(
+            text(
+                """
+                UPDATE products
+                SET image_url = :image_url,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = :id
+                RETURNING *;
+                """
+            ),
+            {"id": product_id, "image_url": image_url},
+        ).first()
+
+    return dict(updated_product._mapping)
 
 
 @app.post("/sales")

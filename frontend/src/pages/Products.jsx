@@ -1,10 +1,13 @@
 import { useEffect, useState } from "react";
 
-const API_URL = "http://100.85.171.19:8000";
+const API_URL =
+  import.meta.env.VITE_API_URL || "http://100.85.171.19:8000";
 
 function Products() {
   const [products, setProducts] = useState([]);
   const [editingProductId, setEditingProductId] = useState(null);
+  const [imageFile, setImageFile] = useState(null);
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
 
   const emptyForm = {
     sku: "",
@@ -22,6 +25,22 @@ function Products() {
   };
 
   const [form, setForm] = useState(emptyForm);
+
+  function getImageSrc(imageUrl) {
+    if (!imageUrl) {
+      return "";
+    }
+
+    if (imageUrl.startsWith("http://") || imageUrl.startsWith("https://")) {
+      return imageUrl;
+    }
+
+    if (imageUrl.startsWith("/")) {
+      return `${API_URL}${imageUrl}`;
+    }
+
+    return imageUrl;
+  }
 
   function loadProducts() {
     fetch(`${API_URL}/products`)
@@ -71,7 +90,8 @@ function Products() {
         );
 
         if (shouldReactivate) {
-          await fetch(`${API_URL}/products/${inactiveProduct.id}`, {
+          const reactivateUrl = `${API_URL}/products/${inactiveProduct.id}`;
+          const reactivateRes = await fetch(reactivateUrl, {
             method: "PUT",
             headers: {
               "Content-Type": "application/json",
@@ -81,6 +101,10 @@ function Products() {
               name: form.name || inactiveProduct.name,
               category: form.category || inactiveProduct.category,
               description: form.description || inactiveProduct.description,
+              public_description:
+                form.public_description || inactiveProduct.public_description,
+              image_url: form.image_url || inactiveProduct.image_url,
+              is_public: form.is_public,
               price_cents: Math.round(Number(form.price_dollars) * 100),
               cost_cents: Math.round(Number(form.cost_dollars) * 100),
               quantity_on_hand: Number(form.quantity_on_hand),
@@ -88,8 +112,18 @@ function Products() {
             }),
           });
 
+          if (!reactivateRes.ok) {
+            const error = await reactivateRes.json();
+            alert(
+              `Reactivate failed (${reactivateRes.status}) at ${reactivateUrl}: ` +
+                (error.detail || "Unknown error")
+            );
+            return;
+          }
+
           setForm(emptyForm);
           setEditingProductId(null);
+          setImageFile(null);
           loadProducts();
           return;
         }
@@ -105,28 +139,42 @@ function Products() {
     delete productToSend.price_dollars;
     delete productToSend.cost_dollars;
 
-    fetch(
-      editingProductId
-        ? `${API_URL}/products/${editingProductId}`
-        : `${API_URL}/products`,
-      {
+    const saveUrl = editingProductId
+      ? `${API_URL}/products/${editingProductId}`
+      : `${API_URL}/products`;
+
+    fetch(saveUrl, {
         method: editingProductId ? "PUT" : "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify(productToSend),
-      }
-    )
+      })
       .then(async (res) => {
         const data = await res.json();
 
         if (!res.ok) {
-          alert(data.detail || "Save product failed");
+          alert(
+            `Save product failed (${res.status}) at ${saveUrl}: ` +
+              (data.detail || "Unknown error")
+          );
           return;
         }
 
         setForm(emptyForm);
         setEditingProductId(null);
+        setImageFile(null);
+        setProducts((currentProducts) => {
+          const exists = currentProducts.some((product) => product.id === data.id);
+
+          if (!exists) {
+            return [...currentProducts, data];
+          }
+
+          return currentProducts.map((product) =>
+            product.id === data.id ? data : product
+          );
+        });
         loadProducts();
       })
       .catch((err) => {
@@ -137,6 +185,7 @@ function Products() {
 
   function startEdit(product) {
     setEditingProductId(product.id);
+    setImageFile(null);
 
     setForm({
       sku: product.sku || "",
@@ -157,6 +206,57 @@ function Products() {
   function cancelEdit() {
     setEditingProductId(null);
     setForm(emptyForm);
+    setImageFile(null);
+  }
+
+  async function uploadImage() {
+    if (!editingProductId || !imageFile) {
+      alert("Select an image after saving the product first");
+      return;
+    }
+
+    const imageData = new FormData();
+    imageData.append("file", imageFile);
+    setIsUploadingImage(true);
+
+    try {
+      const uploadUrl = `${API_URL}/products/${editingProductId}/image`;
+      const response = await fetch(uploadUrl, {
+        method: "POST",
+        body: imageData,
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        alert(
+          data.detail === "Not Found"
+            ? "Image upload endpoint not found. Rebuild and restart the backend, then try again."
+            : data.detail === "Product not found"
+            ? `Product not found at ${uploadUrl}. Save the product first, refresh the Products page, then try uploading again.`
+            : `Image upload failed (${response.status}) at ${uploadUrl}: ` +
+              (data.detail || "Unknown error")
+        );
+        return;
+      }
+
+      setForm({
+        ...form,
+        image_url: data.image_url || "",
+      });
+      setProducts((currentProducts) =>
+        currentProducts.map((product) =>
+          product.id === data.id ? data : product
+        )
+      );
+      setImageFile(null);
+      loadProducts();
+    } catch (err) {
+      console.error(err);
+      alert("Image upload failed");
+    } finally {
+      setIsUploadingImage(false);
+    }
   }
 
   function deleteProduct(id) {
@@ -239,6 +339,39 @@ function Products() {
           onChange={handleChange}
         />
 
+        {form.image_url && (
+          <div style={{ margin: "0.5rem 0" }}>
+            <img
+              src={getImageSrc(form.image_url)}
+              alt={`${form.name || "Product"} preview`}
+              style={{
+                width: "120px",
+                height: "120px",
+                objectFit: "cover",
+                border: "1px solid #ccc",
+              }}
+            />
+          </div>
+        )}
+
+        {editingProductId && (
+          <div style={{ margin: "0.5rem 0" }}>
+            <input
+              type="file"
+              accept="image/*"
+              onChange={(event) => setImageFile(event.target.files[0] || null)}
+            />
+
+            <button
+              type="button"
+              onClick={uploadImage}
+              disabled={!imageFile || isUploadingImage}
+            >
+              {isUploadingImage ? "Uploading..." : "Upload Image"}
+            </button>
+          </div>
+        )}
+
         <label>
           <input
             type="checkbox"
@@ -302,6 +435,7 @@ function Products() {
         <thead>
           <tr>
             <th>SKU</th>
+            <th>Image</th>
             <th>Barcode</th>
             <th>Name</th>
             <th>Category</th>
@@ -317,6 +451,25 @@ function Products() {
           {products.map((product) => (
             <tr key={product.id}>
               <td>{product.sku}</td>
+              <td>
+                {product.image_url ? (
+                  <div className="product-image-preview" tabIndex="0">
+                    <img
+                      className="product-image-thumbnail"
+                      src={getImageSrc(product.image_url)}
+                      alt={product.name}
+                    />
+                    <img
+                      className="product-image-large"
+                      src={getImageSrc(product.image_url)}
+                      alt=""
+                      aria-hidden="true"
+                    />
+                  </div>
+                ) : (
+                  ""
+                )}
+              </td>
               <td>{product.barcode}</td>
               <td>{product.name}</td>
               <td>{product.category}</td>
