@@ -400,6 +400,26 @@ button:disabled {
   background: var(--accent-bg);
 }
 
+.duplicate-review-list {
+  display: grid;
+  gap: 12px;
+}
+
+.duplicate-review-list h3 {
+  margin: 0;
+  color: var(--text-h);
+}
+
+.duplicate-review-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 280px);
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+}
+
 .checkout-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
@@ -980,7 +1000,8 @@ button:disabled {
   .checkout-layout,
   .store-shop-layout,
   .order-card-grid,
-  .order-timeline {
+  .order-timeline,
+  .duplicate-review-card {
     grid-template-columns: 1fr;
   }
 

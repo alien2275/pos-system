@@ -1,4 +1,5 @@
 import os
+import re
 import secrets
 import uuid
 from io import BytesIO
@@ -77,6 +78,11 @@ def clean_cell(value):
     return value
 
 
+def normalize_sku(value):
+    value = clean_cell(value)
+    return value.upper() if isinstance(value, str) else value
+
+
 def parse_import_money(value, row_number, field_name):
     value = clean_cell(value)
 
@@ -125,6 +131,24 @@ def find_product_duplicate(conn, sku, barcode):
 
 def generate_import_sku(conn, base_sku, product_name):
     clean_base = str(base_sku or product_name or "ITEM").strip().upper()
+
+    trailing_number = re.match(r"^(.*?)(\d+)$", clean_base)
+
+    if trailing_number:
+        prefix = trailing_number.group(1)
+        starting_number = int(trailing_number.group(2))
+        padding = len(trailing_number.group(2))
+
+        for number in range(starting_number + 1, 10000):
+            candidate = f"{prefix}{number:0{padding}d}"
+            existing = conn.execute(
+                text("SELECT id FROM products WHERE LOWER(sku) = LOWER(:sku) LIMIT 1;"),
+                {"sku": candidate},
+            ).first()
+
+            if existing is None:
+                return candidate
+
     clean_base = "".join(
         character if character.isalnum() else "-"
         for character in clean_base
@@ -134,7 +158,7 @@ def generate_import_sku(conn, base_sku, product_name):
     for number in range(1, 1000):
         candidate = f"{clean_base}-{number:03d}"
         existing = conn.execute(
-            text("SELECT id FROM products WHERE sku = :sku LIMIT 1;"),
+            text("SELECT id FROM products WHERE LOWER(sku) = LOWER(:sku) LIMIT 1;"),
             {"sku": candidate},
         ).first()
 
@@ -142,6 +166,82 @@ def generate_import_sku(conn, base_sku, product_name):
             return candidate
 
     raise ValueError(f"Could not generate a new SKU for {clean_base}")
+
+
+def insert_import_product(conn, product_data):
+    product_data = {
+        **product_data,
+        "sku": normalize_sku(product_data.get("sku")),
+    }
+
+    conn.execute(
+        text(
+            """
+            INSERT INTO products
+            (
+                sku,
+                barcode,
+                name,
+                category,
+                description,
+                price_cents,
+                cost_cents,
+                quantity_on_hand,
+                reorder_level,
+                image_url,
+                public_description,
+                is_public
+            )
+            VALUES
+            (
+                :sku,
+                :barcode,
+                :name,
+                :category,
+                :description,
+                :price_cents,
+                :cost_cents,
+                :quantity_on_hand,
+                :reorder_level,
+                :image_url,
+                :public_description,
+                :is_public
+            );
+            """
+        ),
+        product_data,
+    )
+
+
+def update_import_product(conn, product_id, product_data):
+    product_data = {
+        **product_data,
+        "sku": normalize_sku(product_data.get("sku")),
+    }
+
+    conn.execute(
+        text(
+            """
+            UPDATE products
+            SET sku = :sku,
+                barcode = :barcode,
+                name = :name,
+                category = :category,
+                description = :description,
+                price_cents = :price_cents,
+                cost_cents = :cost_cents,
+                quantity_on_hand = :quantity_on_hand,
+                reorder_level = :reorder_level,
+                public_description = :public_description,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = :id;
+            """
+        ),
+        {
+            **product_data,
+            "id": product_id,
+        },
+    )
 
 
 class ProductCreate(BaseModel):
@@ -158,6 +258,9 @@ class ProductCreate(BaseModel):
     public_description: Optional[str] = None
     is_public: bool = False
 
+    def model_post_init(self, __context):
+        self.sku = normalize_sku(self.sku)
+
 
 class ProductUpdate(BaseModel):
     sku: Optional[str] = None
@@ -173,6 +276,19 @@ class ProductUpdate(BaseModel):
     image_url: Optional[str] = None
     public_description: Optional[str] = None
     is_public: Optional[bool] = None
+
+    def model_post_init(self, __context):
+        self.sku = normalize_sku(self.sku)
+
+
+class ImportDuplicateDecision(BaseModel):
+    action: Literal["skip", "update", "import_as_new"]
+    product_data: dict
+    matched_product_id: Optional[int] = None
+
+
+class ImportDuplicateResolution(BaseModel):
+    decisions: List[ImportDuplicateDecision]
 
 
 class InventoryAdjustment(BaseModel):
@@ -1228,10 +1344,7 @@ def get_product_import_template():
 
 
 @app.post("/products/import")
-async def import_products(
-    duplicate_mode: Literal["skip", "update", "import_as_new"] = "skip",
-    file: UploadFile = File(...),
-):
+async def import_products(file: UploadFile = File(...)):
     if not file.filename or not file.filename.lower().endswith(".xlsx"):
         raise HTTPException(status_code=400, detail="Upload an .xlsx file")
 
@@ -1280,6 +1393,7 @@ async def import_products(
     skipped = 0
     errors = []
     generated_skus = []
+    duplicates = []
 
     with engine.begin() as conn:
         for index, row in enumerate(rows[1:], start=2):
@@ -1293,7 +1407,7 @@ async def import_products(
                     raise ValueError(f"Row {index}: name is required")
 
                 product_data = {
-                    "sku": clean_cell(row[header_indexes["sku"]]),
+                    "sku": normalize_sku(row[header_indexes["sku"]]),
                     "barcode": clean_cell(row[header_indexes["barcode"]]),
                     "name": name,
                     "category": clean_cell(row[header_indexes["category"]]),
@@ -1331,87 +1445,84 @@ async def import_products(
                     product_data["barcode"],
                 )
 
-                if duplicate is not None and duplicate_mode == "skip":
+                if duplicate is not None:
+                    duplicate_data = dict(duplicate._mapping)
+                    duplicates.append(
+                        {
+                            "row_number": index,
+                            "product_data": product_data,
+                            "matched_product": {
+                                "id": duplicate_data["id"],
+                                "sku": duplicate_data["sku"],
+                                "barcode": duplicate_data["barcode"],
+                                "name": duplicate_data["name"],
+                                "category": duplicate_data["category"],
+                                "quantity_on_hand": duplicate_data["quantity_on_hand"],
+                            },
+                        }
+                    )
+                    continue
+
+                insert_import_product(conn, product_data)
+                imported += 1
+            except Exception as exc:
+                errors.append(str(exc))
+
+    return {
+        "imported": imported,
+        "updated": updated,
+        "skipped": skipped,
+        "generated_skus": generated_skus,
+        "duplicates": duplicates,
+        "errors": errors,
+    }
+
+
+@app.post("/products/import/resolve-duplicates")
+def resolve_product_import_duplicates(resolution: ImportDuplicateResolution):
+    imported = 0
+    updated = 0
+    skipped = 0
+    errors = []
+    generated_skus = []
+
+    with engine.begin() as conn:
+        for index, decision in enumerate(resolution.decisions, start=1):
+            try:
+                product_data = decision.product_data
+
+                if decision.action == "skip":
                     skipped += 1
                     continue
 
-                if duplicate is not None and duplicate_mode == "update":
-                    conn.execute(
-                        text(
-                            """
-                            UPDATE products
-                            SET sku = :sku,
-                                barcode = :barcode,
-                                name = :name,
-                                category = :category,
-                                description = :description,
-                                price_cents = :price_cents,
-                                cost_cents = :cost_cents,
-                                quantity_on_hand = :quantity_on_hand,
-                                reorder_level = :reorder_level,
-                                public_description = :public_description,
-                                updated_at = CURRENT_TIMESTAMP
-                            WHERE id = :id;
-                            """
-                        ),
-                        {
-                            **product_data,
-                            "id": duplicate._mapping["id"],
-                        },
+                if decision.action == "update":
+                    if not decision.matched_product_id:
+                        raise ValueError(f"Decision {index}: matched product is required")
+
+                    update_import_product(
+                        conn,
+                        decision.matched_product_id,
+                        product_data,
                     )
                     updated += 1
                     continue
 
-                if duplicate is not None and duplicate_mode == "import_as_new":
+                if decision.action == "import_as_new":
                     generated_sku = generate_import_sku(
                         conn,
-                        product_data["sku"],
-                        product_data["name"],
+                        product_data.get("sku"),
+                        product_data.get("name"),
                     )
                     generated_skus.append(
-                        f"Row {index}: {product_data['sku'] or product_data['name']} imported as {generated_sku}"
+                        f"{product_data.get('sku') or product_data.get('name')} imported as {generated_sku}"
                     )
-                    product_data["sku"] = generated_sku
-                    product_data["barcode"] = None
-
-                conn.execute(
-                    text(
-                        """
-                        INSERT INTO products
-                        (
-                            sku,
-                            barcode,
-                            name,
-                            category,
-                            description,
-                            price_cents,
-                            cost_cents,
-                            quantity_on_hand,
-                            reorder_level,
-                            image_url,
-                            public_description,
-                            is_public
-                        )
-                        VALUES
-                        (
-                            :sku,
-                            :barcode,
-                            :name,
-                            :category,
-                            :description,
-                            :price_cents,
-                            :cost_cents,
-                            :quantity_on_hand,
-                            :reorder_level,
-                            :image_url,
-                            :public_description,
-                            :is_public
-                        );
-                        """
-                    ),
-                    product_data,
-                )
-                imported += 1
+                    product_data = {
+                        **product_data,
+                        "sku": generated_sku,
+                        "barcode": None,
+                    }
+                    insert_import_product(conn, product_data)
+                    imported += 1
             except Exception as exc:
                 errors.append(str(exc))
 

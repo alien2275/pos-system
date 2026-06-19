@@ -7,9 +7,10 @@ function Products() {
   const [imageFile, setImageFile] = useState(null);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [importFile, setImportFile] = useState(null);
-  const [duplicateMode, setDuplicateMode] = useState("skip");
   const [isImporting, setIsImporting] = useState(false);
   const [importResult, setImportResult] = useState(null);
+  const [duplicateRows, setDuplicateRows] = useState([]);
+  const [duplicateActions, setDuplicateActions] = useState({});
 
   const emptyForm = {
     sku: "",
@@ -323,15 +324,14 @@ function Products() {
     importData.append("file", importFile);
     setIsImporting(true);
     setImportResult(null);
+    setDuplicateRows([]);
+    setDuplicateActions({});
 
     try {
-      const response = await fetch(
-        `${API_URL}/products/import?duplicate_mode=${duplicateMode}`,
-        {
-          method: "POST",
-          body: importData,
-        }
-      );
+      const response = await fetch(`${API_URL}/products/import`, {
+        method: "POST",
+        body: importData,
+      });
 
       const data = await response.json();
 
@@ -341,6 +341,15 @@ function Products() {
       }
 
       setImportResult(data);
+      setDuplicateRows(data.duplicates || []);
+      setDuplicateActions(
+        Object.fromEntries(
+          (data.duplicates || []).map((duplicate) => [
+            duplicate.row_number,
+            "skip",
+          ])
+        )
+      );
       setImportFile(null);
       loadProducts();
     } catch (err) {
@@ -353,6 +362,60 @@ function Products() {
 
   function downloadImportTemplate() {
     window.location.href = `${API_URL}/products/import-template`;
+  }
+
+  function updateDuplicateAction(rowNumber, action) {
+    setDuplicateActions({
+      ...duplicateActions,
+      [rowNumber]: action,
+    });
+  }
+
+  async function resolveDuplicates() {
+    const decisions = duplicateRows.map((duplicate) => ({
+      action: duplicateActions[duplicate.row_number] || "skip",
+      product_data: duplicate.product_data,
+      matched_product_id: duplicate.matched_product.id,
+    }));
+
+    setIsImporting(true);
+
+    try {
+      const response = await fetch(`${API_URL}/products/import/resolve-duplicates`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ decisions }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        alert(data.detail || "Duplicate resolution failed");
+        return;
+      }
+
+      setImportResult({
+        imported: (importResult?.imported || 0) + data.imported,
+        updated: (importResult?.updated || 0) + data.updated,
+        skipped: (importResult?.skipped || 0) + data.skipped,
+        generated_skus: [
+          ...(importResult?.generated_skus || []),
+          ...data.generated_skus,
+        ],
+        errors: [...(importResult?.errors || []), ...data.errors],
+        duplicates: [],
+      });
+      setDuplicateRows([]);
+      setDuplicateActions({});
+      loadProducts();
+    } catch (err) {
+      console.error(err);
+      alert("Duplicate resolution failed");
+    } finally {
+      setIsImporting(false);
+    }
   }
 
   return (
@@ -566,18 +629,6 @@ function Products() {
             </button>
           </div>
 
-          <label>
-            Duplicate Handling
-            <select
-              value={duplicateMode}
-              onChange={(event) => setDuplicateMode(event.target.value)}
-            >
-              <option value="skip">Skip duplicate SKU/barcode</option>
-              <option value="update">Update matching SKU/barcode</option>
-              <option value="import_as_new">Import as new with generated SKU</option>
-            </select>
-          </label>
-
           <div className="button-row">
             <button type="submit" disabled={!importFile || isImporting}>
               {isImporting ? "Importing..." : "Import Products"}
@@ -589,7 +640,53 @@ function Products() {
               <span>{importResult.imported} products imported</span>
               <span>{importResult.updated} products updated</span>
               <span>{importResult.skipped} duplicates skipped</span>
+              <span>{duplicateRows.length} duplicates need review</span>
               <span>{importResult.errors.length} row errors</span>
+            </div>
+          )}
+
+          {duplicateRows.length > 0 && (
+            <div className="duplicate-review-list">
+              <h3>Review Duplicates</h3>
+              {duplicateRows.map((duplicate) => (
+                <div className="duplicate-review-card" key={duplicate.row_number}>
+                  <div>
+                    <strong>Row {duplicate.row_number}: {duplicate.product_data.name}</strong>
+                    <p>
+                      Imported SKU: {duplicate.product_data.sku || "None"} | Barcode:{" "}
+                      {duplicate.product_data.barcode || "None"}
+                    </p>
+                    <p>
+                      Matches: {duplicate.matched_product.name} | SKU:{" "}
+                      {duplicate.matched_product.sku || "None"} | Barcode:{" "}
+                      {duplicate.matched_product.barcode || "None"}
+                    </p>
+                  </div>
+                  <label>
+                    Action
+                    <select
+                      value={duplicateActions[duplicate.row_number] || "skip"}
+                      onChange={(event) =>
+                        updateDuplicateAction(
+                          duplicate.row_number,
+                          event.target.value
+                        )
+                      }
+                    >
+                      <option value="skip">Skip this row</option>
+                      <option value="update">Update matched product</option>
+                      <option value="import_as_new">
+                        Import as new with generated SKU
+                      </option>
+                    </select>
+                  </label>
+                </div>
+              ))}
+              <div className="button-row">
+                <button type="button" onClick={resolveDuplicates} disabled={isImporting}>
+                  Apply Duplicate Choices
+                </button>
+              </div>
             </div>
           )}
 
