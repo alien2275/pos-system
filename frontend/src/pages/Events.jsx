@@ -18,7 +18,10 @@ function Events() {
   const [form, setForm] = useState(emptyForm);
   const [editingEventId, setEditingEventId] = useState(null);
   const [imageFile, setImageFile] = useState(null);
+  const [galleryFile, setGalleryFile] = useState(null);
+  const [eventImages, setEventImages] = useState([]);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const [isUploadingGalleryImage, setIsUploadingGalleryImage] = useState(false);
 
   function getImageSrc(imageUrl) {
     if (!imageUrl) {
@@ -43,6 +46,18 @@ function Events() {
       .catch((err) => console.error(err));
   }
 
+  function loadEventImages(eventId) {
+    if (!eventId) {
+      setEventImages([]);
+      return;
+    }
+
+    fetch(`${API_URL}/events/${eventId}/images`)
+      .then((res) => res.json())
+      .then((data) => setEventImages(data))
+      .catch((err) => console.error(err));
+  }
+
   useEffect(() => {
     loadEvents();
   }, []);
@@ -59,6 +74,8 @@ function Events() {
   function startEdit(event) {
     setEditingEventId(event.id);
     setImageFile(null);
+    setGalleryFile(null);
+    loadEventImages(event.id);
     setForm({
       title: event.title || "",
       location: event.location || "",
@@ -73,6 +90,8 @@ function Events() {
   function cancelEdit() {
     setEditingEventId(null);
     setImageFile(null);
+    setGalleryFile(null);
+    setEventImages([]);
     setForm(emptyForm);
   }
 
@@ -114,6 +133,7 @@ function Events() {
         return currentEvents.map((item) => (item.id === data.id ? data : item));
       });
       setEditingEventId(data.id);
+      loadEventImages(data.id);
       setForm({
         title: data.title || "",
         location: data.location || "",
@@ -165,6 +185,57 @@ function Events() {
     } finally {
       setIsUploadingImage(false);
     }
+  }
+
+  async function uploadGalleryImage() {
+    if (!editingEventId || !galleryFile) {
+      alert("Save the event before uploading gallery photos");
+      return;
+    }
+
+    const imageData = new FormData();
+    imageData.append("file", galleryFile);
+    setIsUploadingGalleryImage(true);
+
+    try {
+      const response = await fetch(`${API_URL}/events/${editingEventId}/images`, {
+        method: "POST",
+        body: imageData,
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        alert(data.detail || "Gallery image upload failed");
+        return;
+      }
+
+      setEventImages([data, ...eventImages]);
+      setGalleryFile(null);
+    } catch (err) {
+      console.error(err);
+      alert("Gallery image upload failed");
+    } finally {
+      setIsUploadingGalleryImage(false);
+    }
+  }
+
+  async function deleteEventImage(imageId) {
+    if (!confirm("Delete this event photo?")) {
+      return;
+    }
+
+    const response = await fetch(`${API_URL}/event-images/${imageId}`, {
+      method: "DELETE",
+    });
+
+    if (!response.ok) {
+      const data = await response.json();
+      alert(data.detail || "Delete event photo failed");
+      return;
+    }
+
+    setEventImages(eventImages.filter((image) => image.id !== imageId));
   }
 
   async function deleteEvent(eventId) {
@@ -263,6 +334,7 @@ function Events() {
 
         {editingEventId && (
           <div style={{ margin: "0.5rem 0" }}>
+            <p>Main event image</p>
             <input
               type="file"
               accept="image/*"
@@ -275,6 +347,40 @@ function Events() {
             >
               {isUploadingImage ? "Uploading..." : "Upload Image"}
             </button>
+          </div>
+        )}
+
+        {editingEventId && (
+          <div style={{ margin: "1rem 0" }}>
+            <p>Event gallery photos</p>
+            <input
+              type="file"
+              accept="image/*"
+              onChange={(event) => setGalleryFile(event.target.files[0] || null)}
+            />
+            <button
+              type="button"
+              onClick={uploadGalleryImage}
+              disabled={!galleryFile || isUploadingGalleryImage}
+            >
+              {isUploadingGalleryImage ? "Uploading..." : "Upload Gallery Photo"}
+            </button>
+
+            {eventImages.length > 0 && (
+              <div className="event-admin-gallery">
+                {eventImages.map((image) => (
+                  <div key={image.id}>
+                    <img src={getImageSrc(image.image_url)} alt="" />
+                    <button
+                      type="button"
+                      onClick={() => deleteEventImage(image.id)}
+                    >
+                      Delete
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 

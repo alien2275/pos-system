@@ -30,7 +30,9 @@ function formatEventDate(event) {
 
 function Store() {
   const [events, setEvents] = useState([]);
+  const [pastEvents, setPastEvents] = useState([]);
   const [isLoadingEvents, setIsLoadingEvents] = useState(true);
+  const [isLoadingPastEvents, setIsLoadingPastEvents] = useState(true);
 
   useEffect(() => {
     fetch(`${API_URL}/store/events`)
@@ -38,6 +40,27 @@ function Store() {
       .then((data) => setEvents(data))
       .catch((err) => console.error(err))
       .finally(() => setIsLoadingEvents(false));
+
+    fetch(`${API_URL}/store/past-events`)
+      .then((res) => res.json())
+      .then(async (data) => {
+        const eventsWithImages = await Promise.all(
+          data.map(async (event) => {
+            try {
+              const response = await fetch(`${API_URL}/events/${event.id}/images`);
+              const images = await response.json();
+              return { ...event, images };
+            } catch (err) {
+              console.error(err);
+              return { ...event, images: [] };
+            }
+          })
+        );
+
+        setPastEvents(eventsWithImages);
+      })
+      .catch((err) => console.error(err))
+      .finally(() => setIsLoadingPastEvents(false));
   }, []);
 
   return (
@@ -48,6 +71,15 @@ function Store() {
         <Link className="store-product-link" to="/store/products">
           View Products
         </Link>
+        <div className="store-social-links">
+          <a href="https://www.instagram.com/" rel="noreferrer" target="_blank">
+            Instagram
+          </a>
+          <a href="https://www.facebook.com/" rel="noreferrer" target="_blank">
+            Facebook
+          </a>
+          <a href="mailto:">Email</a>
+        </div>
       </section>
 
       <section className="store-events-section">
@@ -72,6 +104,43 @@ function Store() {
                   {event.location && <p>{event.location}</p>}
                   {event.description && <p>{event.description}</p>}
                 </div>
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="store-events-section store-past-events-section">
+        <h2>Past Events</h2>
+
+        {isLoadingPastEvents && <p>Loading past events...</p>}
+
+        {!isLoadingPastEvents && pastEvents.length === 0 && (
+          <p>No past event photos are listed yet.</p>
+        )}
+
+        {!isLoadingPastEvents && pastEvents.length > 0 && (
+          <div className="store-past-events">
+            {pastEvents.map((event) => (
+              <article className="store-past-event" key={event.id}>
+                <div className="store-past-event-copy">
+                  <p className="store-event-date">{formatEventDate(event)}</p>
+                  <h3>{event.title}</h3>
+                  {event.location && <p>{event.location}</p>}
+                  {event.description && <p>{event.description}</p>}
+                </div>
+
+                {event.images.length > 0 && (
+                  <div className="store-event-gallery">
+                    {event.images.map((image) => (
+                      <img
+                        key={image.id}
+                        src={getImageSrc(image.image_url)}
+                        alt={`${event.title} photo`}
+                      />
+                    ))}
+                  </div>
+                )}
               </article>
             ))}
           </div>

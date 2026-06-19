@@ -136,6 +136,18 @@ def ensure_event_table():
                 """
             )
         )
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS event_images (
+                    id SERIAL PRIMARY KEY,
+                    event_id INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+                    image_url TEXT NOT NULL,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
+                """
+            )
+        )
     
 
 @app.get("/")
@@ -214,6 +226,24 @@ def get_store_events():
         return [dict(row._mapping) for row in result]
 
 
+@app.get("/store/past-events")
+def get_store_past_events():
+    with engine.connect() as conn:
+        result = conn.execute(
+            text(
+                """
+                SELECT *
+                FROM events
+                WHERE is_public = TRUE
+                  AND COALESCE(end_date, start_date) < CURRENT_DATE
+                ORDER BY start_date DESC, title ASC;
+                """
+            )
+        )
+
+        return [dict(row._mapping) for row in result]
+
+
 @app.get("/events")
 def get_events():
     with engine.connect() as conn:
@@ -225,6 +255,32 @@ def get_events():
                 ORDER BY start_date DESC, title ASC;
                 """
             )
+        )
+
+        return [dict(row._mapping) for row in result]
+
+
+@app.get("/events/{event_id}/images")
+def get_event_images(event_id: int):
+    with engine.connect() as conn:
+        event = conn.execute(
+            text("SELECT * FROM events WHERE id = :id;"),
+            {"id": event_id},
+        ).first()
+
+        if event is None:
+            raise HTTPException(status_code=404, detail="Event not found")
+
+        result = conn.execute(
+            text(
+                """
+                SELECT *
+                FROM event_images
+                WHERE event_id = :event_id
+                ORDER BY created_at DESC, id DESC;
+                """
+            ),
+            {"event_id": event_id},
         )
 
         return [dict(row._mapping) for row in result]
@@ -343,6 +399,76 @@ async def upload_event_image(event_id: int, file: UploadFile = File(...)):
         ).first()
 
     return dict(updated_event._mapping)
+
+
+@app.post("/events/{event_id}/images")
+async def upload_event_gallery_image(event_id: int, file: UploadFile = File(...)):
+    with engine.connect() as conn:
+        event = conn.execute(
+            text("SELECT * FROM events WHERE id = :id;"),
+            {"id": event_id},
+        ).first()
+
+    if event is None:
+        raise HTTPException(status_code=404, detail="Event not found")
+
+    _, extension = os.path.splitext(file.filename or "")
+    extension = extension.lower()
+
+    if extension not in ALLOWED_IMAGE_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail="Image must be a JPG, PNG, WebP, or GIF file",
+        )
+
+    if not file.content_type or not file.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="Uploaded file must be an image")
+
+    contents = await file.read()
+
+    if len(contents) > MAX_IMAGE_BYTES:
+        raise HTTPException(status_code=400, detail="Image must be 5 MB or smaller")
+
+    filename = f"event-{event_id}-gallery-{uuid.uuid4().hex}{extension}"
+    disk_path = os.path.join(EVENT_UPLOAD_DIR, filename)
+    image_url = f"/uploads/events/{filename}"
+
+    with open(disk_path, "wb") as image_file:
+        image_file.write(contents)
+
+    with engine.begin() as conn:
+        event_image = conn.execute(
+            text(
+                """
+                INSERT INTO event_images (event_id, image_url)
+                VALUES (:event_id, :image_url)
+                RETURNING *;
+                """
+            ),
+            {"event_id": event_id, "image_url": image_url},
+        ).first()
+
+    return dict(event_image._mapping)
+
+
+@app.delete("/event-images/{image_id}")
+def delete_event_image(image_id: int):
+    with engine.begin() as conn:
+        result = conn.execute(
+            text(
+                """
+                DELETE FROM event_images
+                WHERE id = :id
+                RETURNING *;
+                """
+            ),
+            {"id": image_id},
+        ).first()
+
+    if result is None:
+        raise HTTPException(status_code=404, detail="Event image not found")
+
+    return {"deleted": True, "image": dict(result._mapping)}
 
 
 @app.delete("/events/{event_id}")

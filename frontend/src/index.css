@@ -151,19 +151,6 @@ code {
   box-sizing: border-box;
 }
 
-.public-store-nav {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  max-width: 1120px;
-  margin: 0 auto 28px;
-}
-
-.public-store-nav a {
-  color: var(--text-h);
-}
-
 .store-page {
   max-width: 1120px;
   margin: 0 auto;
@@ -192,6 +179,21 @@ code {
   border-radius: 6px;
   color: var(--text-h);
   background: var(--accent-bg);
+  text-decoration: none;
+}
+
+.store-social-links {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+}
+
+.store-social-links a {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-h);
   text-decoration: none;
 }
 
@@ -294,7 +296,8 @@ code {
 .store-event-card img {
   width: 100%;
   aspect-ratio: 16 / 10;
-  object-fit: cover;
+  max-height: 260px;
+  object-fit: contain;
   background: var(--code-bg);
 }
 
@@ -316,14 +319,83 @@ code {
   font-weight: 600;
 }
 
+.store-past-events-section {
+  margin-top: 46px;
+}
+
+.store-past-events {
+  display: grid;
+  gap: 20px;
+}
+
+.store-past-event {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+}
+
+.store-past-event-copy {
+  display: grid;
+  gap: 8px;
+}
+
+.store-past-event h3 {
+  margin: 0;
+  color: var(--text-h);
+  font-size: 22px;
+  font-weight: 500;
+}
+
+.store-event-gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 10px;
+}
+
+.store-event-gallery img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--code-bg);
+}
+
+.event-admin-gallery {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+  margin-top: 10px;
+}
+
+.event-admin-gallery div {
+  display: grid;
+  gap: 6px;
+  justify-items: center;
+}
+
+.event-admin-gallery img {
+  width: 90px;
+  height: 90px;
+  object-fit: cover;
+  border: 1px solid var(--border);
+}
+
 @media (max-width: 640px) {
   .public-store-shell {
     padding: 16px;
   }
 
-  .public-store-nav {
-    align-items: flex-start;
-    flex-direction: column;
+  .store-landing {
+    margin-bottom: 32px;
+  }
+
+  .store-event-card img {
+    max-height: 210px;
   }
 }
 

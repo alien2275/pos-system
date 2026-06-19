@@ -35,11 +35,6 @@ function AdminLayout() {
 function StoreLayout() {
   return (
     <div className="public-store-shell">
-      <nav className="public-store-nav">
-        <Link to="/store">sammyinthesky</Link>
-        <Link to="/store/products">Products</Link>
-      </nav>
-
       <Routes>
         <Route path="/store" element={<Store />} />
         <Route path="/store/products" element={<StoreProducts />} />
