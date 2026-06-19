@@ -13,6 +13,11 @@ function Sales() {
   const [searchField, setSearchField] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
 
+  function formatSignedMoney(cents) {
+    const sign = cents > 0 ? "+" : "-";
+    return `${sign}$${(Math.abs(cents) / 100).toFixed(2)}`;
+  }
+
   async function loadSales(start, end) {
     const response = await fetch(
       `${API_URL}/sales/range?start_date=${start}&end_date=${end}`
@@ -250,6 +255,12 @@ function Sales() {
             <span>
               Tax: ${((selectedSale.sale.tax_cents || 0) / 100).toFixed(2)}
             </span>
+            {Number(selectedSale.sale.rounding_adjustment_cents || 0) !== 0 && (
+              <span>
+                Rounding:{" "}
+                {formatSignedMoney(selectedSale.sale.rounding_adjustment_cents)}
+              </span>
+            )}
             <span>
               Total: ${(selectedSale.sale.total_cents / 100).toFixed(2)}
             </span>

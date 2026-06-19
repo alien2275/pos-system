@@ -1,6 +1,35 @@
 import { useEffect, useState } from "react";
 import { API_URL } from "../config";
 
+function calculateRoundingAdjustment(totalCents, roundingMode) {
+  if (roundingMode === "nearest_0_05") {
+    return calculateNearestIncrementAdjustment(totalCents, 5);
+  }
+
+  if (roundingMode === "nearest_0_10") {
+    return calculateNearestIncrementAdjustment(totalCents, 10);
+  }
+
+  if (roundingMode === "dollar_threshold_0_10") {
+    const cents = totalCents % 100;
+    if (cents === 0) return 0;
+    return cents <= 10 ? -cents : 100 - cents;
+  }
+
+  return 0;
+}
+
+function calculateNearestIncrementAdjustment(totalCents, increment) {
+  const remainder = totalCents % increment;
+  if (remainder === 0) return 0;
+  return remainder < increment / 2 ? -remainder : increment - remainder;
+}
+
+function formatSignedMoney(cents) {
+  const sign = cents > 0 ? "+" : "-";
+  return `${sign}$${(Math.abs(cents) / 100).toFixed(2)}`;
+}
+
 function Checkout() {
   const [barcode, setBarcode] = useState("");
   const [cart, setCart] = useState([]);
@@ -13,6 +42,7 @@ function Checkout() {
     tax_rate_percent: "6.00",
     flat_shipping_cents: 0,
     store_url: "http://100.85.171.19:5173/store",
+    pos_rounding_mode: "none",
   });
 
   useEffect(() => {
@@ -87,7 +117,12 @@ function Checkout() {
   );
   const taxRate = Number(settings.tax_rate_percent || 0);
   const tax = Math.round(subtotal * (taxRate / 100));
-  const total = subtotal + tax;
+  const unroundedTotal = subtotal + tax;
+  const roundingAdjustment = calculateRoundingAdjustment(
+    unroundedTotal,
+    settings.pos_rounding_mode
+  );
+  const total = unroundedTotal + roundingAdjustment;
 
   const changeDue =
     paymentType === "cash"
@@ -138,6 +173,7 @@ function Checkout() {
       subtotal_cents: data.subtotal_cents,
       tax_cents: data.tax_cents,
       tax_rate_percent: data.tax_rate_percent,
+      rounding_adjustment_cents: data.rounding_adjustment_cents,
       total_cents: data.total_cents,
       items: [...cart],
       paymentType,
@@ -177,6 +213,11 @@ function Checkout() {
         itemLines +
         `\n\nSubtotal: $${(lastSale.subtotal_cents / 100).toFixed(2)}\n` +
         `Tax: $${(lastSale.tax_cents / 100).toFixed(2)}\n` +
+        (Number(lastSale.rounding_adjustment_cents || 0) !== 0
+          ? `Rounding: ${formatSignedMoney(
+              lastSale.rounding_adjustment_cents
+            )}\n`
+          : "") +
         `Total: $${(lastSale.total_cents / 100).toFixed(2)}\n` +
         `Payment: ${
           lastSale.paymentType === "cash" ? "Cash" : "Card / Other"
@@ -240,6 +281,15 @@ function Checkout() {
               <span>Tax</span>
               <span>${(lastSale.tax_cents / 100).toFixed(2)}</span>
             </div>
+
+            {Number(lastSale.rounding_adjustment_cents || 0) !== 0 && (
+              <div>
+                <span>Rounding</span>
+                <span>
+                  {formatSignedMoney(lastSale.rounding_adjustment_cents)}
+                </span>
+              </div>
+            )}
 
             <div className="receipt-total">
               <span>TOTAL</span>
@@ -369,6 +419,9 @@ function Checkout() {
             <p>
               Tax ({settings.tax_state} {taxRate.toFixed(2)}%): ${(tax / 100).toFixed(2)}
             </p>
+            {roundingAdjustment !== 0 && (
+              <p>Rounding: {formatSignedMoney(roundingAdjustment)}</p>
+            )}
 
             <label>
               Payment Type

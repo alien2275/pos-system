@@ -7,6 +7,7 @@ function Settings() {
     tax_rate_percent: "6.00",
     flat_shipping: "6.00",
     store_url: "http://100.85.171.19:5173/store",
+    pos_rounding_mode: "none",
   });
   const today = new Date().toISOString().split("T")[0];
   const [reportRange, setReportRange] = useState({
@@ -24,6 +25,7 @@ function Settings() {
           tax_rate_percent: data.tax_rate_percent || "6.00",
           flat_shipping: ((data.flat_shipping_cents || 0) / 100).toFixed(2),
           store_url: data.store_url || "http://100.85.171.19:5173/store",
+          pos_rounding_mode: data.pos_rounding_mode || "none",
         });
       })
       .catch((err) => console.error(err));
@@ -51,6 +53,7 @@ function Settings() {
         tax_rate_percent: Number(form.tax_rate_percent || 0),
         flat_shipping_cents: Math.round(Number(form.flat_shipping || 0) * 100),
         store_url: form.store_url,
+        pos_rounding_mode: form.pos_rounding_mode,
       }),
     });
 
@@ -66,6 +69,7 @@ function Settings() {
       tax_rate_percent: data.tax_rate_percent,
       flat_shipping: (data.flat_shipping_cents / 100).toFixed(2),
       store_url: data.store_url,
+      pos_rounding_mode: data.pos_rounding_mode,
     });
     setMessage("Settings saved.");
   }
@@ -140,6 +144,22 @@ function Settings() {
                 onChange={updateField}
                 placeholder="https://your-store.example.com/store"
               />
+            </label>
+
+            <label className="form-full">
+              POS Checkout Rounding
+              <select
+                name="pos_rounding_mode"
+                value={form.pos_rounding_mode}
+                onChange={updateField}
+              >
+                <option value="none">No rounding</option>
+                <option value="nearest_0_05">Round to nearest $0.05</option>
+                <option value="nearest_0_10">Round to nearest $0.10</option>
+                <option value="dollar_threshold_0_10">
+                  Dollar convenience: down at $0.10 or less, otherwise up
+                </option>
+              </select>
             </label>
           </div>
 

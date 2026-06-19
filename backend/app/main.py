@@ -57,6 +57,7 @@ DEFAULT_SETTINGS = {
     "tax_rate_percent": "6.00",
     "flat_shipping_cents": "600",
     "store_url": "http://100.85.171.19:5173/store",
+    "pos_rounding_mode": "none",
 }
 
 
@@ -89,6 +90,7 @@ def get_app_settings(conn):
         "tax_rate_percent": str(tax_rate.quantize(Decimal("0.01"))),
         "flat_shipping_cents": flat_shipping_cents,
         "store_url": settings["store_url"],
+        "pos_rounding_mode": settings["pos_rounding_mode"],
     }
 
 
@@ -99,6 +101,29 @@ def calculate_tax_cents(amount_cents, tax_rate_percent):
         rounding=ROUND_HALF_UP,
     )
     return int(tax)
+
+
+def calculate_rounding_adjustment_cents(total_cents, rounding_mode):
+    if rounding_mode == "nearest_0_05":
+        increment = 5
+    elif rounding_mode == "nearest_0_10":
+        increment = 10
+    elif rounding_mode == "dollar_threshold_0_10":
+        cents = total_cents % 100
+        if cents == 0:
+            return 0
+        if cents <= 10:
+            return -cents
+        return 100 - cents
+    else:
+        return 0
+
+    remainder = total_cents % increment
+    if remainder == 0:
+        return 0
+    if remainder < increment / 2:
+        return -remainder
+    return increment - remainder
 
 
 def format_money(cents):
@@ -370,6 +395,9 @@ class AppSettingsUpdate(BaseModel):
     tax_rate_percent: Optional[Decimal] = None
     flat_shipping_cents: Optional[int] = None
     store_url: Optional[str] = None
+    pos_rounding_mode: Optional[
+        Literal["none", "nearest_0_05", "nearest_0_10", "dollar_threshold_0_10"]
+    ] = None
 
 
 class EventCreate(BaseModel):
@@ -450,6 +478,7 @@ def ensure_event_table():
         conn.execute(text("ALTER TABLE sales ADD COLUMN IF NOT EXISTS subtotal_cents INTEGER;"))
         conn.execute(text("ALTER TABLE sales ADD COLUMN IF NOT EXISTS tax_cents INTEGER NOT NULL DEFAULT 0;"))
         conn.execute(text("ALTER TABLE sales ADD COLUMN IF NOT EXISTS tax_rate_percent NUMERIC(8, 3) NOT NULL DEFAULT 0;"))
+        conn.execute(text("ALTER TABLE sales ADD COLUMN IF NOT EXISTS rounding_adjustment_cents INTEGER NOT NULL DEFAULT 0;"))
         conn.execute(
             text(
                 """
@@ -714,6 +743,16 @@ def update_settings(settings_update: AppSettingsUpdate):
                 detail="Store URL must start with http:// or https://",
             )
         fields["store_url"] = store_url
+
+    if "pos_rounding_mode" in fields:
+        allowed_rounding_modes = {
+            "none",
+            "nearest_0_05",
+            "nearest_0_10",
+            "dollar_threshold_0_10",
+        }
+        if fields["pos_rounding_mode"] not in allowed_rounding_modes:
+            raise HTTPException(status_code=400, detail="Invalid POS rounding mode")
 
     with engine.begin() as conn:
         for key, value in fields.items():
@@ -2621,7 +2660,12 @@ def create_sale(sale: SaleCreate):
             })
 
         tax_cents = calculate_tax_cents(subtotal_cents, settings["tax_rate_percent"])
-        total_cents = subtotal_cents + tax_cents
+        unrounded_total_cents = subtotal_cents + tax_cents
+        rounding_adjustment_cents = calculate_rounding_adjustment_cents(
+            unrounded_total_cents,
+            settings["pos_rounding_mode"],
+        )
+        total_cents = unrounded_total_cents + rounding_adjustment_cents
 
         sale_row = conn.execute(
             text(
@@ -2632,6 +2676,7 @@ def create_sale(sale: SaleCreate):
                     subtotal_cents,
                     tax_cents,
                     tax_rate_percent,
+                    rounding_adjustment_cents,
                     total_cents,
                     order_number
                 )
@@ -2641,6 +2686,7 @@ def create_sale(sale: SaleCreate):
                     :subtotal_cents,
                     :tax_cents,
                     :tax_rate_percent,
+                    :rounding_adjustment_cents,
                     :total_cents,
                     :order_number
                 )
@@ -2653,6 +2699,7 @@ def create_sale(sale: SaleCreate):
                 "subtotal_cents": subtotal_cents,
                 "tax_cents": tax_cents,
                 "tax_rate_percent": settings["tax_rate_percent"],
+                "rounding_adjustment_cents": rounding_adjustment_cents,
                 "total_cents": total_cents,
                 "order_number": generate_order_number(conn),
             },
@@ -2717,6 +2764,7 @@ def create_sale(sale: SaleCreate):
         "subtotal_cents": sale_row._mapping["subtotal_cents"],
         "tax_cents": sale_row._mapping["tax_cents"],
         "tax_rate_percent": str(sale_row._mapping["tax_rate_percent"]),
+        "rounding_adjustment_cents": sale_row._mapping["rounding_adjustment_cents"],
         "total_cents": sale_row._mapping["total_cents"],
         "items": sale_items_data,
     }
