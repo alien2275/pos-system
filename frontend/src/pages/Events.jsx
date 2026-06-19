@@ -22,6 +22,7 @@ function Events() {
   const [eventImages, setEventImages] = useState([]);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [isUploadingGalleryImage, setIsUploadingGalleryImage] = useState(false);
+  const [statusMessage, setStatusMessage] = useState("");
 
   function getImageSrc(imageUrl) {
     if (!imageUrl) {
@@ -75,6 +76,7 @@ function Events() {
     setEditingEventId(event.id);
     setImageFile(null);
     setGalleryFile(null);
+    setStatusMessage("");
     loadEventImages(event.id);
     setForm({
       title: event.title || "",
@@ -92,6 +94,7 @@ function Events() {
     setImageFile(null);
     setGalleryFile(null);
     setEventImages([]);
+    setStatusMessage("");
     setForm(emptyForm);
   }
 
@@ -143,6 +146,11 @@ function Events() {
         image_url: data.image_url || "",
         is_public: data.is_public,
       });
+      setStatusMessage(
+        editingEventId
+          ? "Event saved."
+          : "Event added. You can upload photos now."
+      );
       loadEvents();
     } catch (err) {
       console.error(err);
@@ -174,10 +182,19 @@ function Events() {
       }
 
       setForm({
-        ...form,
+        title: data.title || "",
+        location: data.location || "",
+        description: data.description || "",
+        start_date: data.start_date || "",
+        end_date: data.end_date || "",
         image_url: data.image_url || "",
+        is_public: data.is_public,
       });
+      setEvents((currentEvents) =>
+        currentEvents.map((item) => (item.id === data.id ? data : item))
+      );
       setImageFile(null);
+      setStatusMessage("Main event image uploaded.");
       loadEvents();
     } catch (err) {
       console.error(err);
@@ -212,6 +229,7 @@ function Events() {
 
       setEventImages([data, ...eventImages]);
       setGalleryFile(null);
+      setStatusMessage("Gallery photo uploaded.");
     } catch (err) {
       console.error(err);
       alert("Gallery image upload failed");
@@ -236,6 +254,7 @@ function Events() {
     }
 
     setEventImages(eventImages.filter((image) => image.id !== imageId));
+    setStatusMessage("Gallery photo deleted.");
   }
 
   async function deleteEvent(eventId) {
@@ -266,75 +285,71 @@ function Events() {
 
       <h2>{editingEventId ? "Edit Event" : "Add Event"}</h2>
 
-      <form onSubmit={handleSubmit} style={{ marginBottom: "2rem" }}>
-        <input
-          name="title"
-          placeholder="Event Title"
-          value={form.title}
-          onChange={handleChange}
-          required
-        />
+      <form className="event-admin-form" onSubmit={handleSubmit}>
+        <div className="event-form-grid">
+          <label>
+            Event Title
+            <input
+              name="title"
+              value={form.title}
+              onChange={handleChange}
+              required
+            />
+          </label>
 
-        <input
-          name="location"
-          placeholder="Location"
-          value={form.location}
-          onChange={handleChange}
-        />
+          <label>
+            Location
+            <input
+              name="location"
+              value={form.location}
+              onChange={handleChange}
+            />
+          </label>
 
-        <input
-          name="description"
-          placeholder="Description"
-          value={form.description}
-          onChange={handleChange}
-        />
+          <label className="event-form-full">
+            Description
+            <textarea
+              name="description"
+              value={form.description}
+              onChange={handleChange}
+              rows="3"
+            />
+          </label>
 
-        <label>
-          Start Date{" "}
-          <input
-            name="start_date"
-            type="date"
-            value={form.start_date}
-            onChange={handleChange}
-            required
-          />
-        </label>
+          <label>
+            Start Date
+            <input
+              name="start_date"
+              type="date"
+              value={form.start_date}
+              onChange={handleChange}
+              required
+            />
+          </label>
 
-        <label>
-          End Date{" "}
-          <input
-            name="end_date"
-            type="date"
-            value={form.end_date}
-            onChange={handleChange}
-          />
-        </label>
-
-        <input
-          name="image_url"
-          placeholder="Image URL"
-          value={form.image_url}
-          onChange={handleChange}
-        />
+          <label>
+            End Date
+            <input
+              name="end_date"
+              type="date"
+              value={form.end_date}
+              onChange={handleChange}
+            />
+          </label>
+        </div>
 
         {form.image_url && (
-          <div style={{ margin: "0.5rem 0" }}>
+          <div className="event-current-image">
             <img
               src={getImageSrc(form.image_url)}
               alt={`${form.title || "Event"} preview`}
-              style={{
-                width: "120px",
-                height: "120px",
-                objectFit: "cover",
-                border: "1px solid #ccc",
-              }}
             />
           </div>
         )}
 
         {editingEventId && (
-          <div style={{ margin: "0.5rem 0" }}>
-            <p>Main event image</p>
+          <div className="event-photo-panel">
+            <h3>Main event image</h3>
             <input
               type="file"
               accept="image/*"
@@ -351,8 +366,8 @@ function Events() {
         )}
 
         {editingEventId && (
-          <div style={{ margin: "1rem 0" }}>
-            <p>Event gallery photos</p>
+          <div className="event-photo-panel">
+            <h3>Event gallery photos</h3>
             <input
               type="file"
               accept="image/*"
@@ -384,7 +399,11 @@ function Events() {
           </div>
         )}
 
-        <label>
+        {!editingEventId && (
+          <p className="event-admin-note">Save the event to add photos.</p>
+        )}
+
+        <label className="event-public-toggle">
           <input
             type="checkbox"
             name="is_public"
@@ -394,15 +413,19 @@ function Events() {
           Show On Store
         </label>
 
-        <button type="submit">
-          {editingEventId ? "Save Changes" : "Add Event"}
-        </button>
-
-        {editingEventId && (
-          <button type="button" onClick={cancelEdit}>
-            Cancel Edit
+        <div className="event-form-actions">
+          <button type="submit">
+            {editingEventId ? "Save Changes" : "Add Event"}
           </button>
-        )}
+
+          {editingEventId && (
+            <button type="button" onClick={cancelEdit}>
+              Done
+            </button>
+          )}
+        </div>
+
+        {statusMessage && <p className="event-status">{statusMessage}</p>}
       </form>
 
       <h2>Event List</h2>
