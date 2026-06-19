@@ -7,6 +7,7 @@ function Products() {
   const [imageFile, setImageFile] = useState(null);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [importFile, setImportFile] = useState(null);
+  const [duplicateMode, setDuplicateMode] = useState("skip");
   const [isImporting, setIsImporting] = useState(false);
   const [importResult, setImportResult] = useState(null);
 
@@ -324,10 +325,13 @@ function Products() {
     setImportResult(null);
 
     try {
-      const response = await fetch(`${API_URL}/products/import`, {
-        method: "POST",
-        body: importData,
-      });
+      const response = await fetch(
+        `${API_URL}/products/import?duplicate_mode=${duplicateMode}`,
+        {
+          method: "POST",
+          body: importData,
+        }
+      );
 
       const data = await response.json();
 
@@ -345,6 +349,10 @@ function Products() {
     } finally {
       setIsImporting(false);
     }
+  }
+
+  function downloadImportTemplate() {
+    window.location.href = `${API_URL}/products/import-template`;
   }
 
   return (
@@ -553,6 +561,24 @@ function Products() {
               accept=".xlsx"
               onChange={(event) => setImportFile(event.target.files[0] || null)}
             />
+            <button type="button" onClick={downloadImportTemplate}>
+              Download Template
+            </button>
+          </div>
+
+          <label>
+            Duplicate Handling
+            <select
+              value={duplicateMode}
+              onChange={(event) => setDuplicateMode(event.target.value)}
+            >
+              <option value="skip">Skip duplicate SKU/barcode</option>
+              <option value="update">Update matching SKU/barcode</option>
+              <option value="import_as_new">Import as new with generated SKU</option>
+            </select>
+          </label>
+
+          <div className="button-row">
             <button type="submit" disabled={!importFile || isImporting}>
               {isImporting ? "Importing..." : "Import Products"}
             </button>
@@ -561,7 +587,17 @@ function Products() {
           {importResult && (
             <div className="selected-summary">
               <span>{importResult.imported} products imported</span>
+              <span>{importResult.updated} products updated</span>
+              <span>{importResult.skipped} duplicates skipped</span>
               <span>{importResult.errors.length} row errors</span>
+            </div>
+          )}
+
+          {importResult?.generated_skus.length > 0 && (
+            <div className="import-errors">
+              {importResult.generated_skus.map((message) => (
+                <p key={message}>{message}</p>
+              ))}
             </div>
           )}
 

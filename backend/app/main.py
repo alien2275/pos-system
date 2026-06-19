@@ -4,8 +4,9 @@ import uuid
 from io import BytesIO
 from typing import Literal, Optional, List
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, HTTPException, Response, UploadFile
 from openpyxl import load_workbook
+from openpyxl import Workbook
 from pydantic import BaseModel
 from sqlalchemy import create_engine, text
 from fastapi.middleware.cors import CORSMiddleware
@@ -101,6 +102,46 @@ def parse_import_int(value, row_number, field_name):
         return int(value)
     except (TypeError, ValueError):
         raise ValueError(f"Row {row_number}: {field_name} must be a whole number")
+
+
+def find_product_duplicate(conn, sku, barcode):
+    if not sku and not barcode:
+        return None
+
+    return conn.execute(
+        text(
+            """
+            SELECT *
+            FROM products
+            WHERE (:sku IS NOT NULL AND sku = :sku)
+               OR (:barcode IS NOT NULL AND barcode = :barcode)
+            ORDER BY is_active DESC, id ASC
+            LIMIT 1;
+            """
+        ),
+        {"sku": sku, "barcode": barcode},
+    ).first()
+
+
+def generate_import_sku(conn, base_sku, product_name):
+    clean_base = str(base_sku or product_name or "ITEM").strip().upper()
+    clean_base = "".join(
+        character if character.isalnum() else "-"
+        for character in clean_base
+    ).strip("-")
+    clean_base = clean_base or "ITEM"
+
+    for number in range(1, 1000):
+        candidate = f"{clean_base}-{number:03d}"
+        existing = conn.execute(
+            text("SELECT id FROM products WHERE sku = :sku LIMIT 1;"),
+            {"sku": candidate},
+        ).first()
+
+        if existing is None:
+            return candidate
+
+    raise ValueError(f"Could not generate a new SKU for {clean_base}")
 
 
 class ProductCreate(BaseModel):
@@ -1140,8 +1181,57 @@ def get_inactive_product_match(sku: str = "", barcode: str = ""):
     return dict(result._mapping)
 
 
+@app.get("/products/import-template")
+def get_product_import_template():
+    headers = [
+        "sku",
+        "barcode",
+        "name",
+        "category",
+        "description",
+        "public store description",
+        "price",
+        "cost",
+        "quantity",
+        "reorder level",
+    ]
+
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Products"
+    sheet.append(headers)
+    sheet.append(
+        [
+            "EARRING-001",
+            "123456789012",
+            "Example Earrings",
+            "Jewelry",
+            "Internal product notes",
+            "Public storefront description",
+            "12.50",
+            "4.25",
+            "3",
+            "1",
+        ]
+    )
+
+    output = BytesIO()
+    workbook.save(output)
+
+    return Response(
+        content=output.getvalue(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": 'attachment; filename="product-import-template.xlsx"'
+        },
+    )
+
+
 @app.post("/products/import")
-async def import_products(file: UploadFile = File(...)):
+async def import_products(
+    duplicate_mode: Literal["skip", "update", "import_as_new"] = "skip",
+    file: UploadFile = File(...),
+):
     if not file.filename or not file.filename.lower().endswith(".xlsx"):
         raise HTTPException(status_code=400, detail="Upload an .xlsx file")
 
@@ -1186,7 +1276,10 @@ async def import_products(file: UploadFile = File(...)):
     }
 
     imported = 0
+    updated = 0
+    skipped = 0
     errors = []
+    generated_skus = []
 
     with engine.begin() as conn:
         for index, row in enumerate(rows[1:], start=2):
@@ -1232,6 +1325,55 @@ async def import_products(file: UploadFile = File(...)):
                     "is_public": False,
                 }
 
+                duplicate = find_product_duplicate(
+                    conn,
+                    product_data["sku"],
+                    product_data["barcode"],
+                )
+
+                if duplicate is not None and duplicate_mode == "skip":
+                    skipped += 1
+                    continue
+
+                if duplicate is not None and duplicate_mode == "update":
+                    conn.execute(
+                        text(
+                            """
+                            UPDATE products
+                            SET sku = :sku,
+                                barcode = :barcode,
+                                name = :name,
+                                category = :category,
+                                description = :description,
+                                price_cents = :price_cents,
+                                cost_cents = :cost_cents,
+                                quantity_on_hand = :quantity_on_hand,
+                                reorder_level = :reorder_level,
+                                public_description = :public_description,
+                                updated_at = CURRENT_TIMESTAMP
+                            WHERE id = :id;
+                            """
+                        ),
+                        {
+                            **product_data,
+                            "id": duplicate._mapping["id"],
+                        },
+                    )
+                    updated += 1
+                    continue
+
+                if duplicate is not None and duplicate_mode == "import_as_new":
+                    generated_sku = generate_import_sku(
+                        conn,
+                        product_data["sku"],
+                        product_data["name"],
+                    )
+                    generated_skus.append(
+                        f"Row {index}: {product_data['sku'] or product_data['name']} imported as {generated_sku}"
+                    )
+                    product_data["sku"] = generated_sku
+                    product_data["barcode"] = None
+
                 conn.execute(
                     text(
                         """
@@ -1275,6 +1417,9 @@ async def import_products(file: UploadFile = File(...)):
 
     return {
         "imported": imported,
+        "updated": updated,
+        "skipped": skipped,
+        "generated_skus": generated_skus,
         "errors": errors,
     }
 
