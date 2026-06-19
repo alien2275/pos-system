@@ -1,6 +1,5 @@
 import { useState } from "react";
-
-const API_URL = "http://100.85.171.19:8000";
+import { API_URL } from "../config";
 
 function Checkout() {
   const [barcode, setBarcode] = useState("");
@@ -164,73 +163,49 @@ function Checkout() {
   }
 
   return (
-    <>
-      <h1>Checkout</h1>
+    <div className="admin-page checkout-page">
+      <header className="admin-page-header">
+        <div>
+          <h1>Checkout</h1>
+          <p>Scan items, take payment, and generate a receipt.</p>
+        </div>
+      </header>
 
       {lastSale && (
-        <div
-          Classname="receipt"
-          style={{
-            border: "1px solid #ccc",
-            padding: "1rem",
-            marginBottom: "2rem",
-          }}
-        >
-          <h3 style={{ textAlign: "center" }}>
-            sammyinthesky
-          </h3>
+        <section className="admin-panel receipt">
+          <h2>Receipt</h2>
+          <h3>sammyinthesky</h3>
 
-          <p style={{ textAlign: "center" }}>
-            Handmade Jewlery & Crafts
-          </p>
+          <p>Handmade Jewelry & Crafts</p>
 
           <hr />
           <p>Sale #{lastSale.id}</p>
 
-<div
-  style={{
-    textAlign: "left",
-    maxWidth: "250px",
-    margin: "0 auto",
-    fontFamily: "monospace",
-  }}
->
-{lastSale.items.map((item) => (
-  <div
-    key={item.id}
-    style={{
-      display: "flex",
-      justifyContent: "space-between",
-    }}
-  >
-    <span>
-      {item.quantity} x {item.name}
-    </span>
+          <div className="receipt-lines">
+            {lastSale.items.map((item) => (
+              <div key={item.id}>
+                <span>
+                  {item.quantity} x {item.name}
+                </span>
 
-    <span>
-      ${((item.price_cents * item.quantity) / 100).toFixed(2)}
-    </span>
-  </div>
-))}
+                <span>
+                  ${((item.price_cents * item.quantity) / 100).toFixed(2)}
+                </span>
+              </div>
+            ))}
 
-  <hr />
+            <hr />
 
-<div
-  style={{
-    display: "flex",
-    justifyContent: "space-between",
-    fontWeight: "bold",
-  }}
->
-  <span>TOTAL</span>
+            <div className="receipt-total">
+              <span>TOTAL</span>
 
-  <span>
-    ${(lastSale.total_cents / 100).toFixed(2)}
-  </span>
-</div>
+              <span>
+                ${(lastSale.total_cents / 100).toFixed(2)}
+              </span>
+            </div>
 
-  <hr />
-</div>
+            <hr />
+          </div>
 
           <p>
             Payment: {lastSale.paymentType === "cash" ? "Cash" : "Card / Other"}
@@ -245,100 +220,109 @@ function Checkout() {
             </>
           )}
 
-          <button onClick={() => window.print()}>Print Receipt</button>
-          <button onClick={emailReceipt}>Email Receipt</button>
+          <div className="button-row">
+            <button onClick={() => window.print()}>Print Receipt</button>
+            <button onClick={emailReceipt}>Email Receipt</button>
 
-          <button
-            onClick={() => {
-              setLastSale(null);
-              setBarcode("");
-            }}
-          >
-            New Sale
-          </button>
-        </div>
+            <button
+              onClick={() => {
+                setLastSale(null);
+                setBarcode("");
+              }}
+            >
+              New Sale
+            </button>
+          </div>
+        </section>
       )}
 
       {!lastSale && (
-        <>
-          <form onSubmit={addBarcode}>
-            <input
-              value={barcode}
-              onChange={(e) => setBarcode(e.target.value)}
-              placeholder="Scan or enter barcode"
-              autoFocus
-            />
+        <div className="checkout-layout">
+          <section className="admin-panel">
+            <h2>Add Item</h2>
+            <form className="inline-form" onSubmit={addBarcode}>
+              <input
+                value={barcode}
+                onChange={(e) => setBarcode(e.target.value)}
+                placeholder="Scan or enter barcode"
+                autoFocus
+              />
 
-            <button type="submit">Add</button>
-          </form>
+              <button type="submit">Add</button>
+            </form>
 
-          <h2>Cart</h2>
+            <h2>Cart</h2>
+            <div className="table-wrap">
+              <table className="admin-table">
+                <thead>
+                  <tr>
+                    <th>Qty</th>
+                    <th>Item</th>
+                    <th>Price</th>
+                    <th>Total</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
 
-          <table border="1" cellPadding="8" style={{ borderCollapse: "collapse" }}>
-            <thead>
-              <tr>
-                <th>Qty</th>
-                <th>Item</th>
-                <th>Price</th>
-                <th>Total</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-
-            <tbody>
-              {cart.map((item) => (
-                <tr key={item.id}>
-                  <td>{item.quantity}</td>
-                  <td>{item.name}</td>
-                  <td>${(item.price_cents / 100).toFixed(2)}</td>
-                  <td>${((item.price_cents * item.quantity) / 100).toFixed(2)}</td>
-                  <td>
-                    <button onClick={() => decreaseQuantity(item.id)}>-</button>
-                    <button onClick={() => increaseQuantity(item.id)}>+</button>
-                    <button onClick={() => removeItem(item.id)}>X</button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-
-          <h2>Total: ${(total / 100).toFixed(2)}</h2>
-
-          <h2>Payment</h2>
-
-          <label>
-            Payment Type{" "}
-            <select
-              value={paymentType}
-              onChange={(e) => setPaymentType(e.target.value)}
-            >
-              <option value="cash">Cash</option>
-              <option value="card">Card / PayPal / Other</option>
-            </select>
-          </label>
-
-          {paymentType === "cash" && (
-            <div style={{ marginTop: "1rem" }}>
-              <label>
-                Cash Received ($){" "}
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={cashReceived}
-                  onChange={(e) => setCashReceived(e.target.value)}
-                  placeholder="20.00"
-                />
-              </label>
-
-              <h3>Change Due: ${changeDue.toFixed(2)}</h3>
+                <tbody>
+                  {cart.map((item) => (
+                    <tr key={item.id}>
+                      <td>{item.quantity}</td>
+                      <td>{item.name}</td>
+                      <td>${(item.price_cents / 100).toFixed(2)}</td>
+                      <td>${((item.price_cents * item.quantity) / 100).toFixed(2)}</td>
+                      <td>
+                        <div className="button-row compact">
+                          <button onClick={() => decreaseQuantity(item.id)}>-</button>
+                          <button onClick={() => increaseQuantity(item.id)}>+</button>
+                          <button onClick={() => removeItem(item.id)}>Remove</button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
-          )}
+          </section>
 
-          <button onClick={completeSale}>Complete Sale</button>
-        </>
+          <aside className="admin-panel checkout-summary">
+            <span>Total</span>
+            <strong>${(total / 100).toFixed(2)}</strong>
+
+            <label>
+              Payment Type
+              <select
+                value={paymentType}
+                onChange={(e) => setPaymentType(e.target.value)}
+              >
+                <option value="cash">Cash</option>
+                <option value="card">Card / PayPal / Other</option>
+              </select>
+            </label>
+
+            {paymentType === "cash" && (
+              <>
+                <label>
+                  Cash Received
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={cashReceived}
+                    onChange={(e) => setCashReceived(e.target.value)}
+                    placeholder="20.00"
+                  />
+                </label>
+
+                <p>Change Due: ${changeDue.toFixed(2)}</p>
+              </>
+            )}
+
+            <button onClick={completeSale}>Complete Sale</button>
+          </aside>
+        </div>
       )}
-    </>
+    </div>
   );
 }
 

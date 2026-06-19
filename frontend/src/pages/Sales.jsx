@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
-
-const API_URL = "http://100.85.171.19:8000";
+import { API_URL } from "../config";
 
 function Sales() {
   const [salesData, setSalesData] = useState(null);
@@ -39,125 +38,127 @@ function Sales() {
   }
 
   return (
-    <>
-      <h1>Sales History</h1>
+    <div className="admin-page">
+      <header className="admin-page-header">
+        <div>
+          <h1>Sales</h1>
+          <p>Search transactions and review receipt details.</p>
+        </div>
+      </header>
 
-      <form onSubmit={searchRange}>
-        <label>
-          Start Date{" "}
-          <input
-            type="date"
-            value={startDate}
-            onChange={(e) => setStartDate(e.target.value)}
-          />
-        </label>
+      <section className="admin-panel">
+        <h2>Date Range</h2>
 
-        {" "}
+        <form className="inline-form" onSubmit={searchRange}>
+          <label>
+            Start Date
+            <input
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+            />
+          </label>
 
-        <label>
-          End Date{" "}
-          <input
-            type="date"
-            value={endDate}
-            onChange={(e) => setEndDate(e.target.value)}
-          />
-        </label>
+          <label>
+            End Date
+            <input
+              type="date"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+            />
+          </label>
 
-        {" "}
-
-        <button type="submit">Search</button>
-      </form>
+          <button type="submit">Search</button>
+        </form>
+      </section>
 
       {salesData && (
         <>
-          <h2>Summary</h2>
+          <section className="metric-grid compact-metrics">
+            <article className="metric-card">
+              <span>Sales</span>
+              <strong>{salesData.summary.sale_count}</strong>
+              <p>Transactions in range</p>
+            </article>
 
-          <p>Sales: {salesData.summary.sale_count}</p>
+            <article className="metric-card">
+              <span>Revenue</span>
+              <strong>${(salesData.summary.total_cents / 100).toFixed(2)}</strong>
+              <p>Total for selected dates</p>
+            </article>
+          </section>
 
-          <p>
-            Revenue: $
-            {(salesData.summary.total_cents / 100).toFixed(2)}
-          </p>
+          <section className="admin-panel">
+            <h2>Transactions</h2>
 
-          <h2>Transactions</h2>
+            <div className="table-wrap">
+              <table className="admin-table">
+                <thead>
+                  <tr>
+                    <th>Sale ID</th>
+                    <th>Date</th>
+                    <th>Total</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
 
-          <table
-            border="1"
-            cellPadding="8"
-            style={{ borderCollapse: "collapse" }}
-          >
-            <thead>
-              <tr>
-                <th>Sale ID</th>
-                <th>Date</th>
-                <th>Total</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-
-            <tbody>
-              {salesData.sales.map((sale) => (
-                <tr key={sale.id}>
-                  <td>{sale.id}</td>
-                  <td>{sale.created_at}</td>
-                  <td>${(sale.total_cents / 100).toFixed(2)}</td>
-                  <td>
-                    <button onClick={() => loadSaleDetails(sale.id)}>
-                      Details
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                <tbody>
+                  {salesData.sales.map((sale) => (
+                    <tr key={sale.id}>
+                      <td>{sale.id}</td>
+                      <td>{sale.created_at}</td>
+                      <td>${(sale.total_cents / 100).toFixed(2)}</td>
+                      <td>
+                        <button onClick={() => loadSaleDetails(sale.id)}>
+                          Details
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
         </>
       )}
 
       {selectedSale && (
-        <>
-          <h2>Sale #{selectedSale.sale.id} Details</h2>
+        <section className="admin-panel">
+          <div className="section-heading">
+            <h2>Sale #{selectedSale.sale.id}</h2>
+            <span>${(selectedSale.sale.total_cents / 100).toFixed(2)}</span>
+          </div>
 
           <p>Date: {selectedSale.sale.created_at}</p>
 
-          <p>
-            Total: $
-            {(selectedSale.sale.total_cents / 100).toFixed(2)}
-          </p>
-
-          <table
-            border="1"
-            cellPadding="8"
-            style={{ borderCollapse: "collapse" }}
-          >
-            <thead>
-              <tr>
-                <th>Product</th>
-                <th>Qty</th>
-                <th>Price Each</th>
-                <th>Line Total</th>
-              </tr>
-            </thead>
-
-            <tbody>
-              {selectedSale.items.map((item) => (
-                <tr key={item.id}>
-                  <td>{item.name}</td>
-                  <td>{item.quantity}</td>
-                  <td>${(item.price_cents / 100).toFixed(2)}</td>
-                  <td>
-                    $
-                    {(
-                      (item.price_cents * item.quantity) /
-                      100
-                    ).toFixed(2)}
-                  </td>
+          <div className="table-wrap">
+            <table className="admin-table">
+              <thead>
+                <tr>
+                  <th>Product</th>
+                  <th>Qty</th>
+                  <th>Price Each</th>
+                  <th>Line Total</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </>
+              </thead>
+
+              <tbody>
+                {selectedSale.items.map((item) => (
+                  <tr key={item.id}>
+                    <td>{item.name}</td>
+                    <td>{item.quantity}</td>
+                    <td>${(item.price_cents / 100).toFixed(2)}</td>
+                    <td>
+                      ${((item.price_cents * item.quantity) / 100).toFixed(2)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
       )}
-    </>
+    </div>
   );
 }
 

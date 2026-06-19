@@ -1,7 +1,5 @@
 import { useEffect, useState } from "react";
-
-const API_URL =
-  import.meta.env.VITE_API_URL || "http://100.85.171.19:8000";
+import { API_URL } from "../config";
 
 function Products() {
   const [products, setProducts] = useState([]);
@@ -283,79 +281,95 @@ function Products() {
   }
 
   return (
-    <>
-      <h1>Products</h1>
+    <div className="admin-page">
+      <header className="admin-page-header">
+        <div>
+          <h1>Products</h1>
+          <p>Add, edit, price, and publish catalog items.</p>
+        </div>
+      </header>
 
-      <h2>{editingProductId ? "Edit Product" : "Add Product"}</h2>
+      <section className="admin-panel">
+        <h2>{editingProductId ? "Edit Product" : "Add Product"}</h2>
 
-      <form onSubmit={handleSubmit} style={{ marginBottom: "2rem" }}>
-        <input
-          name="sku"
-          placeholder="SKU"
-          value={form.sku}
-          onChange={handleChange}
-        />
+        <form className="admin-form" onSubmit={handleSubmit}>
+          <div className="form-grid">
+            <label>
+              SKU
+              <input
+                name="sku"
+                value={form.sku}
+                onChange={handleChange}
+              />
+            </label>
 
-        <input
-          name="barcode"
-          placeholder="Barcode"
-          value={form.barcode}
-          onChange={handleChange}
-        />
+            <label>
+              Barcode
+              <input
+                name="barcode"
+                value={form.barcode}
+                onChange={handleChange}
+              />
+            </label>
 
-        <input
-          name="name"
-          placeholder="Name"
-          value={form.name}
-          onChange={handleChange}
-          required
-        />
+            <label>
+              Name
+              <input
+                name="name"
+                value={form.name}
+                onChange={handleChange}
+                required
+              />
+            </label>
 
-        <input
-          name="category"
-          placeholder="Category"
-          value={form.category}
-          onChange={handleChange}
-        />
+            <label>
+              Category
+              <input
+                name="category"
+                value={form.category}
+                onChange={handleChange}
+              />
+            </label>
 
-        <input
-          name="description"
-          placeholder="Description"
-          value={form.description}
-          onChange={handleChange}
-        />
+            <label className="form-full">
+              Description
+              <input
+                name="description"
+                value={form.description}
+                onChange={handleChange}
+              />
+            </label>
 
-        <input
-          name="public_description"
-          placeholder="Public Store Description"
-          value={form.public_description}
-          onChange={handleChange}
-        />
+            <label className="form-full">
+              Public Store Description
+              <input
+                name="public_description"
+                value={form.public_description}
+                onChange={handleChange}
+              />
+            </label>
 
-        <input
-          name="image_url"
-          placeholder="Image URL"
-          value={form.image_url}
-          onChange={handleChange}
-        />
+            <label className="form-full">
+              Image URL
+              <input
+                name="image_url"
+                value={form.image_url}
+                onChange={handleChange}
+              />
+            </label>
+          </div>
 
         {form.image_url && (
-          <div style={{ margin: "0.5rem 0" }}>
+          <div className="form-image-preview">
             <img
               src={getImageSrc(form.image_url)}
               alt={`${form.name || "Product"} preview`}
-              style={{
-                width: "120px",
-                height: "120px",
-                objectFit: "cover",
-                border: "1px solid #ccc",
-              }}
             />
           </div>
         )}
 
         {editingProductId && (
-          <div style={{ margin: "0.5rem 0" }}>
+          <div className="upload-panel">
             <input
               type="file"
               accept="image/*"
@@ -372,122 +386,141 @@ function Products() {
           </div>
         )}
 
-        <label>
-          <input
-            type="checkbox"
-            name="is_public"
-            checked={form.is_public}
-            onChange={handleChange}
-          />
-          Show In Store
-        </label>
+          <div className="form-grid">
+            <label>
+              Price
+              <input
+                name="price_dollars"
+                type="number"
+                step="0.01"
+                min="0"
+                value={form.price_dollars}
+                onChange={handleChange}
+              />
+            </label>
 
-        <input
-          name="price_dollars"
-          type="number"
-          step="0.01"
-          min="0"
-          placeholder="Price $"
-          value={form.price_dollars}
-          onChange={handleChange}
-        />
+            <label>
+              Cost
+              <input
+                name="cost_dollars"
+                type="number"
+                step="0.01"
+                min="0"
+                value={form.cost_dollars}
+                onChange={handleChange}
+              />
+            </label>
 
-        <input
-          name="cost_dollars"
-          type="number"
-          step="0.01"
-          min="0"
-          placeholder="Cost $"
-          value={form.cost_dollars}
-          onChange={handleChange}
-        />
+            <label>
+              Quantity
+              <input
+                name="quantity_on_hand"
+                type="number"
+                value={form.quantity_on_hand}
+                onChange={handleChange}
+              />
+            </label>
 
-        <input
-          name="quantity_on_hand"
-          type="number"
-          placeholder="Qty"
-          value={form.quantity_on_hand}
-          onChange={handleChange}
-        />
+            <label>
+              Reorder Level
+              <input
+                name="reorder_level"
+                type="number"
+                value={form.reorder_level}
+                onChange={handleChange}
+              />
+            </label>
+          </div>
 
-        <input
-          name="reorder_level"
-          type="number"
-          placeholder="Reorder Level"
-          value={form.reorder_level}
-          onChange={handleChange}
-        />
+          <label className="check-row">
+            <input
+              type="checkbox"
+              name="is_public"
+              checked={form.is_public}
+              onChange={handleChange}
+            />
+            Show In Store
+          </label>
 
-        <button type="submit">
-          {editingProductId ? "Save Changes" : "Add Product"}
-        </button>
+          <div className="button-row">
+            <button type="submit">
+              {editingProductId ? "Save Changes" : "Add Product"}
+            </button>
 
-        {editingProductId && (
-          <button type="button" onClick={cancelEdit}>
-            Cancel Edit
-          </button>
-        )}
-      </form>
+            {editingProductId && (
+              <button type="button" onClick={cancelEdit}>
+                Cancel Edit
+              </button>
+            )}
+          </div>
+        </form>
+      </section>
 
-      <h2>Product List</h2>
+      <section className="admin-panel">
+        <h2>Product List</h2>
 
-      <table border="1" cellPadding="8" style={{ borderCollapse: "collapse" }}>
-        <thead>
-          <tr>
-            <th>SKU</th>
-            <th>Image</th>
-            <th>Barcode</th>
-            <th>Name</th>
-            <th>Category</th>
-            <th>Price</th>
-            <th>Cost</th>
-            <th>Qty</th>
-            <th>Reorder Level</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
+        <div className="table-wrap">
+          <table className="admin-table">
+            <thead>
+              <tr>
+                <th>SKU</th>
+                <th>Image</th>
+                <th>Barcode</th>
+                <th>Name</th>
+                <th>Category</th>
+                <th>Price</th>
+                <th>Cost</th>
+                <th>Qty</th>
+                <th>Reorder</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
 
-        <tbody>
-          {products.map((product) => (
-            <tr key={product.id}>
-              <td>{product.sku}</td>
-              <td>
-                {product.image_url ? (
-                  <div className="product-image-preview" tabIndex="0">
-                    <img
-                      className="product-image-thumbnail"
-                      src={getImageSrc(product.image_url)}
-                      alt={product.name}
-                    />
-                    <img
-                      className="product-image-large"
-                      src={getImageSrc(product.image_url)}
-                      alt=""
-                      aria-hidden="true"
-                    />
-                  </div>
-                ) : (
-                  ""
-                )}
-              </td>
-              <td>{product.barcode}</td>
-              <td>{product.name}</td>
-              <td>{product.category}</td>
-              <td>${(product.price_cents / 100).toFixed(2)}</td>
-              <td>${(product.cost_cents / 100).toFixed(2)}</td>
-              <td>{product.quantity_on_hand}</td>
-              <td>{product.reorder_level}</td>
-              <td>
-                <button onClick={() => startEdit(product)}>Edit</button>
-                <button onClick={() => deleteProduct(product.id)}>
-                  Deactivate
-                </button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </>
+            <tbody>
+              {products.map((product) => (
+                <tr key={product.id}>
+                  <td>{product.sku}</td>
+                  <td>
+                    {product.image_url ? (
+                      <div className="product-image-preview" tabIndex="0">
+                        <img
+                          className="product-image-thumbnail"
+                          src={getImageSrc(product.image_url)}
+                          alt={product.name}
+                        />
+                        <img
+                          className="product-image-large"
+                          src={getImageSrc(product.image_url)}
+                          alt=""
+                          aria-hidden="true"
+                        />
+                      </div>
+                    ) : (
+                      ""
+                    )}
+                  </td>
+                  <td>{product.barcode}</td>
+                  <td>{product.name}</td>
+                  <td>{product.category}</td>
+                  <td>${(product.price_cents / 100).toFixed(2)}</td>
+                  <td>${(product.cost_cents / 100).toFixed(2)}</td>
+                  <td>{product.quantity_on_hand}</td>
+                  <td>{product.reorder_level}</td>
+                  <td>
+                    <div className="button-row compact">
+                      <button onClick={() => startEdit(product)}>Edit</button>
+                      <button onClick={() => deleteProduct(product.id)}>
+                        Deactivate
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
   );
 }
 

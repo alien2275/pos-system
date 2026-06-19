@@ -9,25 +9,38 @@ import Store from "./pages/Store";
 import StoreProducts from "./pages/StoreProducts";
 
 function AdminLayout() {
+  const navItems = [
+    { to: "/", label: "Dashboard" },
+    { to: "/products", label: "Products" },
+    { to: "/inventory", label: "Inventory" },
+    { to: "/checkout", label: "Checkout" },
+    { to: "/sales", label: "Sales" },
+    { to: "/events", label: "Events" },
+  ];
+
   return (
-    <div style={{ padding: "2rem", fontFamily: "Arial, sans-serif" }}>
-      <nav style={{ marginBottom: "2rem" }}>
-        <Link to="/">Dashboard</Link>{" | "}
-        <Link to="/products">Products</Link>{" | "}
-        <Link to="/inventory">Inventory</Link>{" | "}
-        <Link to="/checkout">Checkout</Link>{" | "}
-        <Link to="/sales">Sales</Link>{" | "}
-        <Link to="/events">Events</Link>
+    <div className="admin-shell">
+      <nav className="admin-nav">
+        <div className="admin-brand">sammyinthesky POS</div>
+        <div className="admin-nav-links">
+          {navItems.map((item) => (
+            <Link key={item.to} to={item.to}>
+              {item.label}
+            </Link>
+          ))}
+        </div>
       </nav>
 
-      <Routes>
-        <Route path="/" element={<Dashboard />} />
-        <Route path="/products" element={<Products />} />
-        <Route path="/inventory" element={<Inventory />} />
-        <Route path="/checkout" element={<Checkout />} />
-        <Route path="/sales" element={<Sales />} />
-        <Route path="/events" element={<Events />} />
-      </Routes>
+      <main className="admin-main">
+        <Routes>
+          <Route path="/" element={<Dashboard />} />
+          <Route path="/products" element={<Products />} />
+          <Route path="/inventory" element={<Inventory />} />
+          <Route path="/checkout" element={<Checkout />} />
+          <Route path="/sales" element={<Sales />} />
+          <Route path="/events" element={<Events />} />
+        </Routes>
+      </main>
     </div>
   );
 }

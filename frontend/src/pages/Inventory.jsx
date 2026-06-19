@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
-
-const API_URL = "http://100.85.171.19:8000";
+import { API_URL } from "../config";
 
 function Inventory() {
   const [products, setProducts] = useState([]);
@@ -105,104 +104,140 @@ function Inventory() {
   );
 
   return (
-    <>
-      <h1>Inventory</h1>
+    <div className="admin-page">
+      <header className="admin-page-header">
+        <div>
+          <h1>Inventory</h1>
+          <p>Review low stock, adjust counts, and inspect item history.</p>
+        </div>
+      </header>
 
-      <h2>Low Stock</h2>
+      <section className="admin-panel">
+        <div className="section-heading">
+          <h2>Low Stock</h2>
+          <span>{lowStock.length} items</span>
+        </div>
 
-      <table border="1" cellPadding="8" style={{ borderCollapse: "collapse" }}>
-        <thead>
-          <tr>
-            <th>SKU</th>
-            <th>Name</th>
-            <th>Qty</th>
-            <th>Reorder Level</th>
-          </tr>
-        </thead>
-        <tbody>
-          {lowStock.map((product) => (
-            <tr key={product.id}>
-              <td>{product.sku}</td>
-              <td>{product.name}</td>
-              <td>{product.quantity_on_hand}</td>
-              <td>{product.reorder_level}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-
-      <h2>Adjust Inventory</h2>
-
-      <form onSubmit={submitAdjustment}>
-        <select value={selectedProductId} onChange={handleProductChange}>
-          <option value="">Select Product</option>
-          {products.map((product) => (
-            <option key={product.id} value={product.id}>
-              {product.name} — Qty: {product.quantity_on_hand}
-            </option>
-          ))}
-        </select>
-
-        {selectedProduct && (
-          <p>
-            Current Qty: {selectedProduct.quantity_on_hand} | Reorder Level:{" "}
-            {selectedProduct.reorder_level}
-          </p>
+        {lowStock.length === 0 ? (
+          <p>No low stock items right now.</p>
+        ) : (
+          <div className="table-wrap">
+            <table className="admin-table">
+              <thead>
+                <tr>
+                  <th>SKU</th>
+                  <th>Name</th>
+                  <th>Qty</th>
+                  <th>Reorder Level</th>
+                </tr>
+              </thead>
+              <tbody>
+                {lowStock.map((product) => (
+                  <tr key={product.id}>
+                    <td>{product.sku}</td>
+                    <td>{product.name}</td>
+                    <td>{product.quantity_on_hand}</td>
+                    <td>{product.reorder_level}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
+      </section>
 
-        <input
-          name="quantity_change"
-          type="number"
-          value={adjustment.quantity_change}
-          onChange={handleAdjustmentChange}
-          placeholder="Quantity Change"
-        />
+      <section className="admin-panel">
+        <h2>Adjust Inventory</h2>
 
-        <select
-          name="reason"
-          value={adjustment.reason}
-          onChange={handleAdjustmentChange}
-        >
-          <option value="Shipment">Shipment</option>
-          <option value="Return">Return</option>
-          <option value="Damage">Damage</option>
-          <option value="Adjustment">Adjustment</option>
-          <option value="Transfer">Transfer</option>
-        </select>
+        <form className="admin-form" onSubmit={submitAdjustment}>
+          <div className="form-grid">
+            <label className="form-full">
+              Product
+              <select value={selectedProductId} onChange={handleProductChange}>
+                <option value="">Select Product</option>
+                {products.map((product) => (
+                  <option key={product.id} value={product.id}>
+                    {product.name} - Qty: {product.quantity_on_hand}
+                  </option>
+                ))}
+              </select>
+            </label>
 
-        <input
-          name="notes"
-          placeholder="Notes"
-          value={adjustment.notes}
-          onChange={handleAdjustmentChange}
-        />
+            <label>
+              Quantity Change
+              <input
+                name="quantity_change"
+                type="number"
+                value={adjustment.quantity_change}
+                onChange={handleAdjustmentChange}
+              />
+            </label>
 
-        <button type="submit">Apply Adjustment</button>
-      </form>
+            <label>
+              Reason
+              <select
+                name="reason"
+                value={adjustment.reason}
+                onChange={handleAdjustmentChange}
+              >
+                <option value="Shipment">Shipment</option>
+                <option value="Return">Return</option>
+                <option value="Damage">Damage</option>
+                <option value="Adjustment">Adjustment</option>
+                <option value="Transfer">Transfer</option>
+              </select>
+            </label>
 
-      <h2>Inventory History</h2>
+            <label className="form-full">
+              Notes
+              <input
+                name="notes"
+                value={adjustment.notes}
+                onChange={handleAdjustmentChange}
+              />
+            </label>
+          </div>
 
-      <table border="1" cellPadding="8" style={{ borderCollapse: "collapse" }}>
-        <thead>
-          <tr>
-            <th>Date</th>
-            <th>Change</th>
-            <th>Reason</th>
-            <th>Notes</th>
-          </tr>
-        </thead>
-        <tbody>
-          {history.map((entry) => (
-            <tr key={entry.id}>
-              <td>{entry.created_at}</td>
-              <td>{entry.quantity_change}</td>
-              <td>{entry.reason}</td>
-              <td>{entry.notes}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </>
+          {selectedProduct && (
+            <div className="selected-summary">
+              <span>Current Qty: {selectedProduct.quantity_on_hand}</span>
+              <span>Reorder Level: {selectedProduct.reorder_level}</span>
+            </div>
+          )}
+
+          <div className="button-row">
+            <button type="submit">Apply Adjustment</button>
+          </div>
+        </form>
+      </section>
+
+      <section className="admin-panel">
+        <h2>Inventory History</h2>
+
+        <div className="table-wrap">
+          <table className="admin-table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Change</th>
+                <th>Reason</th>
+                <th>Notes</th>
+              </tr>
+            </thead>
+            <tbody>
+              {history.map((entry) => (
+                <tr key={entry.id}>
+                  <td>{entry.created_at}</td>
+                  <td>{entry.quantity_change}</td>
+                  <td>{entry.reason}</td>
+                  <td>{entry.notes}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
   );
 }
 

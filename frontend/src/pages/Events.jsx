@@ -1,7 +1,5 @@
 import { useEffect, useState } from "react";
-
-const API_URL =
-  import.meta.env.VITE_API_URL || "http://100.85.171.19:8000";
+import { API_URL } from "../config";
 
 function Events() {
   const emptyForm = {
