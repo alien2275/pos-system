@@ -672,6 +672,22 @@ button:disabled {
   background: var(--accent-bg);
 }
 
+.store-cart-notice {
+  position: sticky;
+  top: 12px;
+  z-index: 30;
+  width: fit-content;
+  max-width: 100%;
+  margin: 0 auto 18px;
+  padding: 10px 14px;
+  border: 1px solid var(--accent-border);
+  border-radius: 6px;
+  color: var(--text-h);
+  background: var(--bg);
+  box-shadow: var(--shadow);
+  text-align: center;
+}
+
 .order-card {
   display: grid;
   gap: 14px;

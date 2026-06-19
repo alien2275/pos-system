@@ -35,6 +35,8 @@ function StoreProducts() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [orderMessage, setOrderMessage] = useState("");
+  const [cartNotice, setCartNotice] = useState("");
+  const [lastAddedProductId, setLastAddedProductId] = useState(null);
 
   useEffect(() => {
     fetch(`${API_URL}/store/products`)
@@ -71,10 +73,22 @@ function StoreProducts() {
             : item
         )
       );
+      showCartNotice(product);
       return;
     }
 
     setCart([...cart, { ...product, quantity: 1 }]);
+    showCartNotice(product);
+  }
+
+  function showCartNotice(product) {
+    setCartNotice(`${product.name} added to cart.`);
+    setLastAddedProductId(product.id);
+
+    window.setTimeout(() => {
+      setCartNotice("");
+      setLastAddedProductId(null);
+    }, 2200);
   }
 
   function updateQuantity(productId, quantity) {
@@ -169,6 +183,8 @@ function StoreProducts() {
         <p>Available handmade goods from sammyinthesky.</p>
       </header>
 
+      {cartNotice && <div className="store-cart-notice">{cartNotice}</div>}
+
       {isLoading && <p>Loading products...</p>}
       {error && <p>{error}</p>}
       {orderMessage && <p className="store-order-message">{orderMessage}</p>}
@@ -200,7 +216,9 @@ function StoreProducts() {
                     <strong>${(product.price_cents / 100).toFixed(2)}</strong>
                     <span>{product.quantity_on_hand} available</span>
                   </div>
-                  <button onClick={() => addToCart(product)}>Add To Cart</button>
+                  <button onClick={() => addToCart(product)}>
+                    {lastAddedProductId === product.id ? "Added" : "Add To Cart"}
+                  </button>
                 </div>
               </article>
             ))}
