@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { API_URL } from "../config";
+import { API_URL, apiFetch } from "../config";
 
 function Events() {
   const emptyForm = {
@@ -39,7 +39,7 @@ function Events() {
   }
 
   function loadEvents() {
-    fetch(`${API_URL}/events`)
+    apiFetch("/events")
       .then((res) => res.json())
       .then((data) => setEvents(data))
       .catch((err) => console.error(err));
@@ -51,7 +51,7 @@ function Events() {
       return;
     }
 
-    fetch(`${API_URL}/events/${eventId}/images`)
+    apiFetch(`/events/${eventId}/images`)
       .then((res) => res.json())
       .then((data) => setEventImages(data))
       .catch((err) => console.error(err));
@@ -105,11 +105,11 @@ function Events() {
     };
 
     const saveUrl = editingEventId
-      ? `${API_URL}/events/${editingEventId}`
-      : `${API_URL}/events`;
+      ? `/events/${editingEventId}`
+      : "/events";
 
     try {
-      const response = await fetch(saveUrl, {
+      const response = await apiFetch(saveUrl, {
         method: editingEventId ? "PUT" : "POST",
         headers: {
           "Content-Type": "application/json",
@@ -167,7 +167,7 @@ function Events() {
     setIsUploadingImage(true);
 
     try {
-      const response = await fetch(`${API_URL}/events/${editingEventId}/image`, {
+      const response = await apiFetch(`/events/${editingEventId}/image`, {
         method: "POST",
         body: imageData,
       });
@@ -213,7 +213,7 @@ function Events() {
     setIsUploadingGalleryImage(true);
 
     try {
-      const response = await fetch(`${API_URL}/events/${editingEventId}/images`, {
+      const response = await apiFetch(`/events/${editingEventId}/images`, {
         method: "POST",
         body: imageData,
       });
@@ -241,7 +241,7 @@ function Events() {
       return;
     }
 
-    const response = await fetch(`${API_URL}/event-images/${imageId}`, {
+    const response = await apiFetch(`/event-images/${imageId}`, {
       method: "DELETE",
     });
 
@@ -260,7 +260,7 @@ function Events() {
       return;
     }
 
-    const response = await fetch(`${API_URL}/events/${eventId}`, {
+    const response = await apiFetch(`/events/${eventId}`, {
       method: "DELETE",
     });
 

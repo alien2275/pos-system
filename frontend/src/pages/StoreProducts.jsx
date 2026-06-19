@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { API_URL } from "../config";
 
+const CART_STORAGE_KEY = "pos-store-cart";
+
 function getImageSrc(imageUrl) {
   if (!imageUrl) {
     return "";
@@ -20,6 +22,8 @@ function getImageSrc(imageUrl) {
 function StoreProducts() {
   const [products, setProducts] = useState([]);
   const [cart, setCart] = useState([]);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState("all");
   const [shipping, setShipping] = useState({
     customer_name: "",
     customer_email: "",
@@ -43,6 +47,20 @@ function StoreProducts() {
     flat_shipping_cents: 0,
   });
   const cartRef = useRef(null);
+
+  useEffect(() => {
+    const savedCart = window.localStorage.getItem(CART_STORAGE_KEY);
+    if (!savedCart) {
+      return;
+    }
+
+    try {
+      setCart(JSON.parse(savedCart));
+    } catch (err) {
+      console.error(err);
+      window.localStorage.removeItem(CART_STORAGE_KEY);
+    }
+  }, []);
 
   useEffect(() => {
     fetch(`${API_URL}/store/products`)
@@ -69,7 +87,40 @@ function StoreProducts() {
       .catch((err) => console.error(err));
   }, []);
 
+  useEffect(() => {
+    window.localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(cart));
+  }, [cart]);
+
+  useEffect(() => {
+    if (products.length === 0 || cart.length === 0) {
+      return;
+    }
+
+    const nextCart = cart
+      .map((item) => {
+        const product = products.find((entry) => entry.id === item.id);
+        if (!product || product.quantity_on_hand <= 0) {
+          return null;
+        }
+
+        return {
+          ...product,
+          quantity: Math.min(item.quantity, product.quantity_on_hand),
+        };
+      })
+      .filter(Boolean);
+
+    if (JSON.stringify(nextCart) !== JSON.stringify(cart)) {
+      setCart(nextCart);
+    }
+  }, [products]);
+
   function addToCart(product) {
+    if (product.quantity_on_hand <= 0) {
+      alert("This item is sold out");
+      return;
+    }
+
     setOrderMessage("");
     const existing = cart.find((item) => item.id === product.id);
 
@@ -106,6 +157,11 @@ function StoreProducts() {
 
   function updateQuantity(productId, quantity) {
     const product = products.find((item) => item.id === productId);
+    if (!product) {
+      setCart(cart.filter((item) => item.id !== productId));
+      return;
+    }
+
     const nextQuantity = Math.max(0, Math.min(quantity, product.quantity_on_hand));
 
     if (nextQuantity === 0) {
@@ -181,6 +237,7 @@ function StoreProducts() {
       }
 
       setCart([]);
+      window.localStorage.removeItem(CART_STORAGE_KEY);
       setShipping({
         customer_name: "",
         customer_email: "",
@@ -202,6 +259,30 @@ function StoreProducts() {
       setIsSubmitting(false);
     }
   }
+
+  const categories = Array.from(
+    new Set(products.map((product) => product.category || "Uncategorized"))
+  );
+
+  const visibleProducts = products.filter((product) => {
+    const category = product.category || "Uncategorized";
+    const matchesCategory =
+      selectedCategory === "all" || category === selectedCategory;
+    const query = searchQuery.trim().toLowerCase();
+    const matchesSearch =
+      !query ||
+      product.name.toLowerCase().includes(query) ||
+      (product.public_description || "").toLowerCase().includes(query) ||
+      category.toLowerCase().includes(query);
+
+    return matchesCategory && matchesSearch;
+  });
+
+  const productsByCategory = visibleProducts.reduce((groups, product) => {
+    const category = product.category || "Uncategorized";
+    groups[category] = [...(groups[category] || []), product];
+    return groups;
+  }, {});
 
   return (
     <main className="store-page">
@@ -228,33 +309,97 @@ function StoreProducts() {
 
       {!isLoading && !error && products.length > 0 && (
         <div className="store-shop-layout">
-          <section className="store-grid">
-            {products.map((product) => (
-              <article className="store-product" key={product.id}>
-                <div className="store-product-image">
-                  {product.image_url ? (
-                    <img src={getImageSrc(product.image_url)} alt={product.name} />
-                  ) : (
-                    <span>No Image</span>
-                  )}
-                </div>
+          <section className="store-products-section">
+            <div className="store-product-tools">
+              <input
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                placeholder="Search products"
+              />
 
-                <div className="store-product-body">
-                  <p className="store-product-category">{product.category}</p>
-                  <h2>{product.name}</h2>
-                  <p className="store-product-description">
-                    {product.public_description || "Handmade item available now."}
-                  </p>
-                  <div className="store-product-footer">
-                    <strong>${(product.price_cents / 100).toFixed(2)}</strong>
-                    <span>{product.quantity_on_hand} available</span>
+              <select
+                value={selectedCategory}
+                onChange={(event) => setSelectedCategory(event.target.value)}
+              >
+                <option value="all">All Categories</option>
+                {categories.map((category) => (
+                  <option key={category} value={category}>
+                    {category}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {visibleProducts.length === 0 ? (
+              <p>No products match that search.</p>
+            ) : (
+              Object.entries(productsByCategory).map(([category, items]) => (
+                <div className="store-category-group" key={category}>
+                  <div className="section-heading">
+                    <h2>{category}</h2>
+                    <span>{items.length} items</span>
                   </div>
-                  <button onClick={() => addToCart(product)}>
-                    {lastAddedProductId === product.id ? "Added" : "Add To Cart"}
-                  </button>
+
+                  <div className="store-grid">
+                    {items.map((product) => {
+                      const isSoldOut = product.quantity_on_hand <= 0;
+
+                      return (
+                        <article
+                          className={`store-product ${
+                            isSoldOut ? "is-sold-out" : ""
+                          }`}
+                          key={product.id}
+                        >
+                          <div className="store-product-image">
+                            {product.image_url ? (
+                              <img
+                                src={getImageSrc(product.image_url)}
+                                alt={product.name}
+                              />
+                            ) : (
+                              <span>No Image</span>
+                            )}
+                            {isSoldOut && (
+                              <span className="sold-out-badge">Sold Out</span>
+                            )}
+                          </div>
+
+                          <div className="store-product-body">
+                            <p className="store-product-category">{category}</p>
+                            <h2>{product.name}</h2>
+                            <p className="store-product-description">
+                              {product.public_description ||
+                                "Handmade item available now."}
+                            </p>
+                            <div className="store-product-footer">
+                              <strong>
+                                ${(product.price_cents / 100).toFixed(2)}
+                              </strong>
+                              <span>
+                                {isSoldOut
+                                  ? "Sold out"
+                                  : `${product.quantity_on_hand} available`}
+                              </span>
+                            </div>
+                            <button
+                              onClick={() => addToCart(product)}
+                              disabled={isSoldOut}
+                            >
+                              {isSoldOut
+                                ? "Sold Out"
+                                : lastAddedProductId === product.id
+                                ? "Added"
+                                : "Add To Cart"}
+                            </button>
+                          </div>
+                        </article>
+                      );
+                    })}
+                  </div>
                 </div>
-              </article>
-            ))}
+              ))
+            )}
           </section>
 
           <aside className="store-cart" ref={cartRef}>

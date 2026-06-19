@@ -1,4 +1,6 @@
 import { Link, Route, Routes, useLocation } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { apiFetch } from "./config";
 import Dashboard from "./pages/Dashboard";
 import Products from "./pages/Products";
 import Inventory from "./pages/Inventory";
@@ -10,6 +12,67 @@ import OrderDetail from "./pages/OrderDetail";
 import Settings from "./pages/Settings";
 import Store from "./pages/Store";
 import StoreProducts from "./pages/StoreProducts";
+
+function AdminLogin({ onLogin }) {
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+
+  async function submitLogin(event) {
+    event.preventDefault();
+    setError("");
+
+    const response = await apiFetch("/auth/login", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ username, password }),
+    });
+
+    if (!response.ok) {
+      setError("Username or password was not accepted.");
+      return;
+    }
+
+    onLogin();
+  }
+
+  return (
+    <main className="admin-login-page">
+      <form className="admin-panel admin-login-card" onSubmit={submitLogin}>
+        <div>
+          <h1>sammyinthesky POS</h1>
+          <p>Sign in to manage products, sales, orders, and settings.</p>
+        </div>
+
+        <label>
+          Admin Username
+          <input
+            value={username}
+            onChange={(event) => setUsername(event.target.value)}
+            autoFocus
+            required
+          />
+        </label>
+
+        <label>
+          Admin Password
+          <input
+            type="password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            required
+          />
+        </label>
+
+        {error && <p>{error}</p>}
+
+        <button type="submit">Sign In</button>
+      </form>
+    </main>
+  );
+}
 
 function AdminLayout() {
   const navItems = [
@@ -23,6 +86,11 @@ function AdminLayout() {
     { to: "/settings", label: "Settings" },
   ];
 
+  async function logout() {
+    await apiFetch("/auth/logout", { method: "POST" });
+    window.location.reload();
+  }
+
   return (
     <div className="admin-shell">
       <nav className="admin-nav">
@@ -33,6 +101,9 @@ function AdminLayout() {
               {item.label}
             </Link>
           ))}
+          <button className="nav-button" onClick={logout}>
+            Sign Out
+          </button>
         </div>
       </nav>
 
@@ -66,9 +137,33 @@ function StoreLayout() {
 
 function App() {
   const location = useLocation();
+  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+
+  useEffect(() => {
+    if (location.pathname.startsWith("/store")) {
+      setIsCheckingAuth(false);
+      return;
+    }
+
+    setIsCheckingAuth(true);
+    apiFetch("/auth/status")
+      .then((res) => res.json())
+      .then((data) => setIsAuthenticated(data.authenticated))
+      .catch((err) => console.error(err))
+      .finally(() => setIsCheckingAuth(false));
+  }, [location.pathname]);
 
   if (location.pathname.startsWith("/store")) {
     return <StoreLayout />;
+  }
+
+  if (isCheckingAuth) {
+    return <p>Checking sign in...</p>;
+  }
+
+  if (!isAuthenticated) {
+    return <AdminLogin onLogin={() => setIsAuthenticated(true)} />;
   }
 
   return <AdminLayout />;

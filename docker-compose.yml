@@ -31,6 +31,9 @@ services:
       POSTGRES_USER: Alien2275
       POSTGRES_PASSWORD: Ak8pch1001a
       POSTGRES_HOST: postgres
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin}
+      ADMIN_SESSION_SECRET: ${ADMIN_SESSION_SECRET:-change-me-session-secret}
     volumes:
       - ./uploads:/app/uploads
     ports:

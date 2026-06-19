@@ -2,11 +2,17 @@ import os
 import re
 import secrets
 import uuid
+import hmac
+import hashlib
+import json
+import zipfile
+from datetime import datetime
 from decimal import Decimal, ROUND_HALF_UP
 from io import BytesIO
 from typing import Literal, Optional, List
 
-from fastapi import FastAPI, File, HTTPException, Response, UploadFile
+from fastapi import FastAPI, File, HTTPException, Request, Response, UploadFile
+from fastapi.responses import JSONResponse
 from openpyxl import load_workbook
 from openpyxl import Workbook
 from pydantic import BaseModel
@@ -51,6 +57,14 @@ DATABASE_URL = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:5432/{DB_NAME}"
 
 engine = create_engine(DATABASE_URL)
 
+ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin")
+ADMIN_SESSION_SECRET = os.getenv(
+    "ADMIN_SESSION_SECRET",
+    DB_PASSWORD or secrets.token_urlsafe(32),
+)
+ADMIN_COOKIE_NAME = "pos_admin_session"
+
 
 DEFAULT_SETTINGS = {
     "tax_state": "MD",
@@ -59,6 +73,54 @@ DEFAULT_SETTINGS = {
     "store_url": "http://100.85.171.19:5173/store",
     "pos_rounding_mode": "none",
 }
+
+
+def create_admin_session_token():
+    signature = hmac.new(
+        ADMIN_SESSION_SECRET.encode("utf-8"),
+        b"admin",
+        hashlib.sha256,
+    ).hexdigest()
+    return f"admin.{signature}"
+
+
+def is_valid_admin_session(token):
+    if not token:
+        return False
+
+    return hmac.compare_digest(token, create_admin_session_token())
+
+
+def is_public_request(method, path):
+    if method == "OPTIONS":
+        return True
+
+    if path in {"/", "/auth/login", "/auth/status", "/settings/store-qr.png"}:
+        return True
+
+    if method == "GET" and path == "/settings":
+        return True
+
+    if method == "GET" and re.match(r"^/events/\d+/images$", path):
+        return True
+
+    return (
+        path.startswith("/store")
+        or path.startswith("/uploads")
+        or path.startswith("/docs")
+        or path.startswith("/openapi.json")
+    )
+
+
+@app.middleware("http")
+async def require_admin_session(request: Request, call_next):
+    if is_public_request(request.method, request.url.path):
+        return await call_next(request)
+
+    if is_valid_admin_session(request.cookies.get(ADMIN_COOKIE_NAME)):
+        return await call_next(request)
+
+    return JSONResponse({"detail": "Authentication required"}, status_code=401)
 
 
 def generate_order_number(conn):
@@ -135,6 +197,18 @@ def draw_pdf_row(pdf, y, label, value, bold=False):
     pdf.drawString(0.75 * inch, y, label)
     pdf.drawRightString(7.75 * inch, y, str(value))
     return y - 0.24 * inch
+
+
+def workbook_response(workbook, filename):
+    output = BytesIO()
+    workbook.save(output)
+    output.seek(0)
+
+    return Response(
+        content=output.getvalue(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 def normalize_import_header(value):
@@ -388,6 +462,11 @@ class SaleCreate(BaseModel):
     items: List[SaleItemCreate]
     customer_name: Optional[str] = None
     payment_type: Optional[Literal["cash", "card", "other"]] = None
+
+
+class AdminLogin(BaseModel):
+    username: str
+    password: str
 
 
 class AppSettingsUpdate(BaseModel):
@@ -710,6 +789,41 @@ def root():
     }
 
 
+@app.get("/auth/status")
+def auth_status(request: Request):
+    return {
+        "authenticated": is_valid_admin_session(
+            request.cookies.get(ADMIN_COOKIE_NAME)
+        )
+    }
+
+
+@app.post("/auth/login")
+def login(login_data: AdminLogin):
+    username_matches = hmac.compare_digest(login_data.username, ADMIN_USERNAME)
+    password_matches = hmac.compare_digest(login_data.password, ADMIN_PASSWORD)
+
+    if not username_matches or not password_matches:
+        raise HTTPException(status_code=401, detail="Invalid username or password")
+
+    response = JSONResponse({"authenticated": True})
+    response.set_cookie(
+        key=ADMIN_COOKIE_NAME,
+        value=create_admin_session_token(),
+        httponly=True,
+        samesite="lax",
+        max_age=60 * 60 * 12,
+    )
+    return response
+
+
+@app.post("/auth/logout")
+def logout():
+    response = JSONResponse({"authenticated": False})
+    response.delete_cookie(ADMIN_COOKIE_NAME)
+    return response
+
+
 @app.get("/settings")
 def get_settings():
     with engine.connect() as conn:
@@ -934,6 +1048,335 @@ def download_tax_summary_report(start_date: str, end_date: str):
     )
 
 
+@app.get("/exports/products.xlsx")
+def export_products():
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.title = "Products"
+    worksheet.append(
+        [
+            "SKU",
+            "Barcode",
+            "Name",
+            "Category",
+            "Description",
+            "Public Store Description",
+            "Price",
+            "Cost",
+            "Quantity",
+            "Reorder Level",
+            "Public",
+            "Image URL",
+            "Active",
+        ]
+    )
+
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text(
+                """
+                SELECT *
+                FROM products
+                ORDER BY is_active DESC, category NULLS LAST, name ASC;
+                """
+            )
+        )
+
+        for row in rows:
+            product = dict(row._mapping)
+            worksheet.append(
+                [
+                    product["sku"],
+                    product["barcode"],
+                    product["name"],
+                    product["category"],
+                    product["description"],
+                    product["public_description"],
+                    (product["price_cents"] or 0) / 100,
+                    (product["cost_cents"] or 0) / 100,
+                    product["quantity_on_hand"],
+                    product["reorder_level"],
+                    product["is_public"],
+                    product["image_url"],
+                    product["is_active"],
+                ]
+            )
+
+    return workbook_response(workbook, "products-export.xlsx")
+
+
+@app.get("/exports/sales.xlsx")
+def export_sales():
+    workbook = Workbook()
+    sales_sheet = workbook.active
+    sales_sheet.title = "Sales"
+    sales_sheet.append(
+        [
+            "Order Number",
+            "Type",
+            "Customer",
+            "Payment Type",
+            "Subtotal",
+            "Tax",
+            "Rounding",
+            "Total",
+            "Created At",
+        ]
+    )
+
+    items_sheet = workbook.create_sheet("Sale Items")
+    items_sheet.append(
+        [
+            "Order Number",
+            "Product",
+            "SKU",
+            "Quantity",
+            "Price Each",
+            "Line Total",
+        ]
+    )
+
+    with engine.connect() as conn:
+        sales = conn.execute(
+            text(
+                """
+                SELECT
+                    sales.*,
+                    CASE WHEN online_orders.id IS NULL THEN 'POS' ELSE 'Online' END AS sale_type,
+                    COALESCE(
+                        sales.customer_name,
+                        online_orders.customer_name,
+                        online_orders.shipping_name
+                    ) AS display_customer_name
+                FROM sales
+                LEFT JOIN online_orders ON online_orders.sale_id = sales.id
+                ORDER BY sales.created_at DESC;
+                """
+            )
+        )
+
+        for row in sales:
+            sale = dict(row._mapping)
+            sales_sheet.append(
+                [
+                    sale["order_number"],
+                    sale["sale_type"],
+                    sale["display_customer_name"],
+                    sale["payment_type"],
+                    (sale["subtotal_cents"] or sale["total_cents"] or 0) / 100,
+                    (sale["tax_cents"] or 0) / 100,
+                    (sale["rounding_adjustment_cents"] or 0) / 100,
+                    (sale["total_cents"] or 0) / 100,
+                    sale["created_at"],
+                ]
+            )
+
+        sale_items = conn.execute(
+            text(
+                """
+                SELECT
+                    sales.order_number,
+                    products.name,
+                    products.sku,
+                    sale_items.quantity,
+                    sale_items.price_cents
+                FROM sale_items
+                JOIN sales ON sales.id = sale_items.sale_id
+                LEFT JOIN products ON products.id = sale_items.product_id
+                ORDER BY sales.created_at DESC, sale_items.id ASC;
+                """
+            )
+        )
+
+        for row in sale_items:
+            item = dict(row._mapping)
+            items_sheet.append(
+                [
+                    item["order_number"],
+                    item["name"],
+                    item["sku"],
+                    item["quantity"],
+                    (item["price_cents"] or 0) / 100,
+                    ((item["price_cents"] or 0) * item["quantity"]) / 100,
+                ]
+            )
+
+    return workbook_response(workbook, "sales-export.xlsx")
+
+
+@app.get("/exports/orders.xlsx")
+def export_online_orders():
+    workbook = Workbook()
+    orders_sheet = workbook.active
+    orders_sheet.title = "Online Orders"
+    orders_sheet.append(
+        [
+            "Order Number",
+            "Status",
+            "Customer",
+            "Email",
+            "Ship To",
+            "Address 1",
+            "Address 2",
+            "City",
+            "State",
+            "Postal Code",
+            "Country",
+            "Subtotal",
+            "Tax",
+            "Shipping",
+            "Total",
+            "Carrier",
+            "Tracking",
+            "Created At",
+            "Shipped At",
+            "Archived At",
+        ]
+    )
+
+    items_sheet = workbook.create_sheet("Order Items")
+    items_sheet.append(
+        ["Order Number", "Product", "Quantity", "Price Each", "Line Total"]
+    )
+
+    with engine.connect() as conn:
+        orders = conn.execute(
+            text(
+                """
+                SELECT
+                    online_orders.*,
+                    sales.order_number
+                FROM online_orders
+                LEFT JOIN sales ON sales.id = online_orders.sale_id
+                ORDER BY online_orders.created_at DESC;
+                """
+            )
+        )
+
+        for row in orders:
+            order = dict(row._mapping)
+            orders_sheet.append(
+                [
+                    order["order_number"],
+                    order["status"],
+                    order["customer_name"],
+                    order["customer_email"],
+                    order["shipping_name"],
+                    order["shipping_address_line1"],
+                    order["shipping_address_line2"],
+                    order["shipping_city"],
+                    order["shipping_state"],
+                    order["shipping_postal_code"],
+                    order["shipping_country"],
+                    (order["subtotal_cents"] or 0) / 100,
+                    (order["tax_cents"] or 0) / 100,
+                    (order["shipping_cents"] or 0) / 100,
+                    (order["total_cents"] or 0) / 100,
+                    order["carrier"],
+                    order["tracking_id"],
+                    order["created_at"],
+                    order["shipped_at"],
+                    order["archived_at"],
+                ]
+            )
+
+        items = conn.execute(
+            text(
+                """
+                SELECT
+                    sales.order_number,
+                    online_order_items.product_name,
+                    online_order_items.quantity,
+                    online_order_items.price_cents
+                FROM online_order_items
+                JOIN online_orders ON online_orders.id = online_order_items.order_id
+                LEFT JOIN sales ON sales.id = online_orders.sale_id
+                ORDER BY online_orders.created_at DESC, online_order_items.id ASC;
+                """
+            )
+        )
+
+        for row in items:
+            item = dict(row._mapping)
+            items_sheet.append(
+                [
+                    item["order_number"],
+                    item["product_name"],
+                    item["quantity"],
+                    (item["price_cents"] or 0) / 100,
+                    ((item["price_cents"] or 0) * item["quantity"]) / 100,
+                ]
+            )
+
+    return workbook_response(workbook, "online-orders-export.xlsx")
+
+
+@app.get("/backups/full.zip")
+def download_full_backup():
+    backup_tables = [
+        "app_settings",
+        "products",
+        "inventory_transactions",
+        "sales",
+        "sale_items",
+        "events",
+        "event_images",
+        "online_orders",
+        "online_order_items",
+    ]
+    created_at = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+    backup_data = {
+        "created_at": created_at,
+        "database": {},
+    }
+
+    with engine.connect() as conn:
+        for table_name in backup_tables:
+            order_column = "key" if table_name == "app_settings" else "id"
+            rows = conn.execute(
+                text(f"SELECT * FROM {table_name} ORDER BY {order_column};")
+            )
+            backup_data["database"][table_name] = [
+                dict(row._mapping) for row in rows
+            ]
+
+    buffer = BytesIO()
+    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as backup_zip:
+        backup_zip.writestr(
+            "database.json",
+            json.dumps(backup_data, default=str, indent=2),
+        )
+        backup_zip.writestr(
+            "README.txt",
+            (
+                "POS System Backup\n\n"
+                f"Created at: {created_at}\n\n"
+                "database.json contains exported table data.\n"
+                "uploads/ contains product and event image files.\n"
+                "Restore should be handled carefully to avoid overwriting newer sales.\n"
+            ),
+        )
+
+        if os.path.isdir(UPLOAD_ROOT):
+            for root, _, files in os.walk(UPLOAD_ROOT):
+                for filename in files:
+                    disk_path = os.path.join(root, filename)
+                    archive_path = os.path.join(
+                        "uploads",
+                        os.path.relpath(disk_path, UPLOAD_ROOT),
+                    )
+                    backup_zip.write(disk_path, archive_path)
+
+    buffer.seek(0)
+    filename = f"pos-backup-{datetime.utcnow().strftime('%Y%m%d-%H%M%S')}.zip"
+
+    return Response(
+        content=buffer.getvalue(),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @app.get("/products")
 def get_products():
     with engine.connect() as conn:
@@ -972,7 +1415,6 @@ def get_store_products():
                 FROM products
                 WHERE is_active = TRUE
                   AND is_public = TRUE
-                  AND quantity_on_hand > 0
                 ORDER BY category NULLS LAST, name ASC;
                 """
             )
@@ -2110,10 +2552,25 @@ def get_dashboard():
             )
         ).first()
 
+        low_stock_items = conn.execute(
+            text(
+                """
+                SELECT id, sku, name, quantity_on_hand, reorder_level
+                FROM products
+                WHERE is_active = TRUE
+                  AND reorder_level > 0
+                  AND quantity_on_hand <= reorder_level
+                ORDER BY quantity_on_hand ASC, name ASC
+                LIMIT 8;
+                """
+            )
+        )
+
     return {
         "products": dict(product_summary._mapping),
         "sales": dict(sales_summary._mapping),
         "online_orders": dict(online_order_summary._mapping),
+        "low_stock_items": [dict(row._mapping) for row in low_stock_items],
     }
 
 

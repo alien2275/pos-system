@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { API_URL } from "../config";
+import { apiFetch } from "../config";
 
 function formatStatus(status) {
   if (status === "pending_packaging") return "Needs Packaging";
@@ -15,7 +15,7 @@ function Orders() {
   const [error, setError] = useState("");
 
   function loadOrders() {
-    fetch(`${API_URL}/online-orders`)
+    apiFetch("/online-orders")
       .then(async (res) => {
         const data = await res.json();
 
@@ -36,7 +36,7 @@ function Orders() {
   }, []);
 
   async function markPackaged(orderId) {
-    const response = await fetch(`${API_URL}/online-orders/${orderId}/packaged`, {
+    const response = await apiFetch(`/online-orders/${orderId}/packaged`, {
       method: "PUT",
     });
 
@@ -70,7 +70,7 @@ function Orders() {
       ...trackingForms[orderId],
     };
 
-    const response = await fetch(`${API_URL}/online-orders/${orderId}/ship`, {
+    const response = await apiFetch(`/online-orders/${orderId}/ship`, {
       method: "PUT",
       headers: {
         "Content-Type": "application/json",
@@ -96,7 +96,7 @@ function Orders() {
       return;
     }
 
-    const response = await fetch(`${API_URL}/online-orders/${orderId}/archive`, {
+    const response = await apiFetch(`/online-orders/${orderId}/archive`, {
       method: "PUT",
     });
 

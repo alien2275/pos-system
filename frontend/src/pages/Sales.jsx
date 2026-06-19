@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { API_URL } from "../config";
+import { apiFetch } from "../config";
 
 function Sales() {
   const [salesData, setSalesData] = useState(null);
@@ -19,8 +19,8 @@ function Sales() {
   }
 
   async function loadSales(start, end) {
-    const response = await fetch(
-      `${API_URL}/sales/range?start_date=${start}&end_date=${end}`
+    const response = await apiFetch(
+      `/sales/range?start_date=${start}&end_date=${end}`
     );
 
     const data = await response.json();
@@ -30,7 +30,7 @@ function Sales() {
   }
 
   async function loadSaleDetails(saleId) {
-    const response = await fetch(`${API_URL}/sales/${saleId}`);
+    const response = await apiFetch(`/sales/${saleId}`);
     const data = await response.json();
 
     setSelectedSale(data);
@@ -53,8 +53,8 @@ function Sales() {
       return;
     }
 
-    const response = await fetch(
-      `${API_URL}/sales/search?field=${encodeURIComponent(
+    const response = await apiFetch(
+      `/sales/search?field=${encodeURIComponent(
         searchField
       )}&query=${encodeURIComponent(searchQuery)}`
     );

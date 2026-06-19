@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { API_URL } from "../config";
+import { API_URL, apiFetch } from "../config";
 
 function calculateRoundingAdjustment(totalCents, roundingMode) {
   if (roundingMode === "nearest_0_05") {
@@ -46,7 +46,7 @@ function Checkout() {
   });
 
   useEffect(() => {
-    fetch(`${API_URL}/settings`)
+    apiFetch("/settings")
       .then((res) => res.json())
       .then((data) => setSettings(data))
       .catch((err) => console.error(err));
@@ -56,7 +56,7 @@ function Checkout() {
     event.preventDefault();
 
     try {
-      const response = await fetch(`${API_URL}/products/barcode/${barcode}`);
+      const response = await apiFetch(`/products/barcode/${barcode}`);
 
       if (!response.ok) {
         alert("Product not found");
@@ -111,6 +111,18 @@ function Checkout() {
     setCart(cart.filter((item) => item.id !== productId));
   }
 
+  function cancelSale() {
+    if (cart.length > 0 && !confirm("Cancel this sale and clear the cart?")) {
+      return;
+    }
+
+    setCart([]);
+    setCustomerName("");
+    setCashReceived("");
+    setPaymentType("cash");
+    setBarcode("");
+  }
+
   const subtotal = cart.reduce(
     (sum, item) => sum + item.price_cents * item.quantity,
     0
@@ -144,7 +156,7 @@ function Checkout() {
       }
     }
 
-    const response = await fetch(`${API_URL}/sales`, {
+    const response = await apiFetch("/sales", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -454,6 +466,9 @@ function Checkout() {
 
             <button className="checkout-complete-button" onClick={completeSale}>
               Complete Sale
+            </button>
+            <button type="button" onClick={cancelSale}>
+              Cancel Sale
             </button>
           </aside>
         </div>

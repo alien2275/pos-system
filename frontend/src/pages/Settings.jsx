@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { API_URL } from "../config";
+import { API_URL, apiFetch } from "../config";
 
 function Settings() {
   const [form, setForm] = useState({
@@ -17,7 +17,7 @@ function Settings() {
   const [message, setMessage] = useState("");
 
   useEffect(() => {
-    fetch(`${API_URL}/settings`)
+    apiFetch("/settings")
       .then((res) => res.json())
       .then((data) => {
         setForm({
@@ -43,7 +43,7 @@ function Settings() {
     event.preventDefault();
     setMessage("");
 
-    const response = await fetch(`${API_URL}/settings`, {
+    const response = await apiFetch("/settings", {
       method: "PUT",
       headers: {
         "Content-Type": "application/json",
@@ -86,6 +86,10 @@ function Settings() {
     event.preventDefault();
     const params = new URLSearchParams(reportRange);
     window.location.href = `${API_URL}/reports/tax-summary.pdf?${params.toString()}`;
+  }
+
+  function downloadExport(path) {
+    window.location.href = `${API_URL}${path}`;
   }
 
   return (
@@ -208,6 +212,35 @@ function Settings() {
 
           <button type="submit">Download Tax Summary</button>
         </form>
+      </section>
+
+      <section className="admin-panel">
+        <h2>Excel Exports</h2>
+
+        <div className="button-row">
+          <button type="button" onClick={() => downloadExport("/exports/products.xlsx")}>
+            Export Products
+          </button>
+          <button type="button" onClick={() => downloadExport("/exports/sales.xlsx")}>
+            Export Sales
+          </button>
+          <button type="button" onClick={() => downloadExport("/exports/orders.xlsx")}>
+            Export Online Orders
+          </button>
+        </div>
+      </section>
+
+      <section className="admin-panel">
+        <h2>Full Backup</h2>
+        <p>
+          Downloads database records and uploaded product/event images in one ZIP.
+        </p>
+
+        <div className="button-row">
+          <button type="button" onClick={() => downloadExport("/backups/full.zip")}>
+            Download Backup ZIP
+          </button>
+        </div>
       </section>
     </div>
   );

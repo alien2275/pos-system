@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { API_URL } from "../config";
+import { apiFetch } from "../config";
 
 function Inventory() {
   const [products, setProducts] = useState([]);
@@ -13,14 +13,14 @@ function Inventory() {
   });
 
   function loadProducts() {
-    fetch(`${API_URL}/products`)
+    apiFetch("/products")
       .then((res) => res.json())
       .then((data) => setProducts(data))
       .catch((err) => console.error(err));
   }
 
   function loadLowStock() {
-    fetch(`${API_URL}/inventory/low-stock`)
+    apiFetch("/inventory/low-stock")
       .then((res) => res.json())
       .then((data) => setLowStock(data))
       .catch((err) => console.error(err));
@@ -29,7 +29,7 @@ function Inventory() {
   function loadHistory(productId) {
     if (!productId) return;
 
-    fetch(`${API_URL}/inventory/history/${productId}`)
+    apiFetch(`/inventory/history/${productId}`)
       .then((res) => res.json())
       .then((data) => setHistory(data))
       .catch((err) => console.error(err));
@@ -63,7 +63,7 @@ function Inventory() {
       return;
     }
 
-    fetch(`${API_URL}/inventory/adjust`, {
+    apiFetch("/inventory/adjust", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

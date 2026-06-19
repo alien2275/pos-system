@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { API_URL } from "../config";
+import { API_URL, apiFetch } from "../config";
 
 function Products() {
   const [products, setProducts] = useState([]);
@@ -11,6 +11,11 @@ function Products() {
   const [importResult, setImportResult] = useState(null);
   const [duplicateRows, setDuplicateRows] = useState([]);
   const [duplicateActions, setDuplicateActions] = useState({});
+  const [bulkImages, setBulkImages] = useState([]);
+  const [bulkImageIndex, setBulkImageIndex] = useState(0);
+  const [bulkAssignments, setBulkAssignments] = useState({});
+  const [isBulkUploading, setIsBulkUploading] = useState(false);
+  const [bulkImageMessage, setBulkImageMessage] = useState("");
 
   const emptyForm = {
     sku: "",
@@ -46,7 +51,7 @@ function Products() {
   }
 
   function loadProducts() {
-    fetch(`${API_URL}/products`)
+    apiFetch("/products")
       .then((res) => res.json())
       .then((data) => setProducts(data))
       .catch((err) => console.error(err));
@@ -74,8 +79,8 @@ function Products() {
     event.preventDefault();
 
     if (!editingProductId) {
-      const inactiveMatchRes = await fetch(
-        `${API_URL}/products/inactive-match?sku=${encodeURIComponent(
+      const inactiveMatchRes = await apiFetch(
+        `/products/inactive-match?sku=${encodeURIComponent(
           form.sku
         )}&barcode=${encodeURIComponent(form.barcode)}`
       );
@@ -93,8 +98,8 @@ function Products() {
         );
 
         if (shouldReactivate) {
-          const reactivateUrl = `${API_URL}/products/${inactiveProduct.id}`;
-          const reactivateRes = await fetch(reactivateUrl, {
+          const reactivateUrl = `/products/${inactiveProduct.id}`;
+          const reactivateRes = await apiFetch(reactivateUrl, {
             method: "PUT",
             headers: {
               "Content-Type": "application/json",
@@ -149,10 +154,10 @@ function Products() {
     delete productToSend.cost_dollars;
 
     const saveUrl = editingProductId
-      ? `${API_URL}/products/${editingProductId}`
-      : `${API_URL}/products`;
+      ? `/products/${editingProductId}`
+      : "/products";
 
-    fetch(saveUrl, {
+    apiFetch(saveUrl, {
         method: editingProductId ? "PUT" : "POST",
         headers: {
           "Content-Type": "application/json",
@@ -227,18 +232,18 @@ function Products() {
     setImageFile(null);
   }
 
-  async function uploadProductImage(productId) {
-    if (!productId || !imageFile) {
+  async function uploadProductImage(productId, fileToUpload = imageFile) {
+    if (!productId || !fileToUpload) {
       return null;
     }
 
     const imageData = new FormData();
-    imageData.append("file", imageFile);
+    imageData.append("file", fileToUpload);
     setIsUploadingImage(true);
 
     try {
-      const uploadUrl = `${API_URL}/products/${productId}/image`;
-      const response = await fetch(uploadUrl, {
+      const uploadUrl = `/products/${productId}/image`;
+      const response = await apiFetch(uploadUrl, {
         method: "POST",
         body: imageData,
       });
@@ -294,7 +299,7 @@ function Products() {
       return;
     }
 
-    fetch(`${API_URL}/products/${id}`, {
+    apiFetch(`/products/${id}`, {
       method: "DELETE",
     })
       .then(async (res) => {
@@ -328,7 +333,7 @@ function Products() {
     setDuplicateActions({});
 
     try {
-      const response = await fetch(`${API_URL}/products/import`, {
+      const response = await apiFetch("/products/import", {
         method: "POST",
         body: importData,
       });
@@ -381,7 +386,7 @@ function Products() {
     setIsImporting(true);
 
     try {
-      const response = await fetch(`${API_URL}/products/import/resolve-duplicates`, {
+      const response = await apiFetch("/products/import/resolve-duplicates", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -417,6 +422,97 @@ function Products() {
       setIsImporting(false);
     }
   }
+
+  function handleBulkImageSelection(event) {
+    const selectedFiles = Array.from(event.target.files || []);
+
+    bulkImages.forEach((image) => URL.revokeObjectURL(image.previewUrl));
+
+    const nextImages = selectedFiles.map((file) => ({
+      id: `${file.name}-${file.lastModified}-${file.size}`,
+      file,
+      fileName: file.name,
+      previewUrl: URL.createObjectURL(file),
+    }));
+
+    const nextAssignments = {};
+    nextImages.forEach((image) => {
+      const fileBase = image.fileName.replace(/\.[^.]+$/, "").toUpperCase();
+      const matchedProduct = products.find(
+        (product) => (product.sku || "").toUpperCase() === fileBase
+      );
+
+      if (matchedProduct) {
+        nextAssignments[image.id] = String(matchedProduct.id);
+      }
+    });
+
+    setBulkImages(nextImages);
+    setBulkAssignments(nextAssignments);
+    setBulkImageIndex(0);
+    setBulkImageMessage("");
+    event.target.value = "";
+  }
+
+  function updateBulkAssignment(imageId, productId) {
+    setBulkAssignments({
+      ...bulkAssignments,
+      [imageId]: productId,
+    });
+  }
+
+  function skipBulkImage() {
+    setBulkImageIndex((currentIndex) =>
+      Math.min(currentIndex + 1, bulkImages.length - 1)
+    );
+  }
+
+  async function uploadCurrentBulkImage() {
+    const currentImage = bulkImages[bulkImageIndex];
+    const productId = bulkAssignments[currentImage?.id];
+
+    if (!currentImage || !productId) {
+      alert("Choose a product for this image first");
+      return;
+    }
+
+    setIsBulkUploading(true);
+    setBulkImageMessage("");
+
+    const uploadedProduct = await uploadProductImage(
+      Number(productId),
+      currentImage.file
+    );
+
+    setIsBulkUploading(false);
+
+    if (!uploadedProduct) {
+      return;
+    }
+
+    const product = products.find((item) => item.id === Number(productId));
+    setBulkImageMessage(
+      `${currentImage.fileName} assigned to ${product?.sku || product?.name}.`
+    );
+
+    setBulkImageIndex((currentIndex) =>
+      Math.min(currentIndex + 1, bulkImages.length - 1)
+    );
+    loadProducts();
+  }
+
+  function clearBulkImages() {
+    bulkImages.forEach((image) => URL.revokeObjectURL(image.previewUrl));
+    setBulkImages([]);
+    setBulkAssignments({});
+    setBulkImageIndex(0);
+    setBulkImageMessage("");
+  }
+
+  const currentBulkImage = bulkImages[bulkImageIndex];
+  const currentBulkProductId = currentBulkImage
+    ? bulkAssignments[currentBulkImage.id] || ""
+    : "";
 
   return (
     <div className="admin-page">
@@ -706,6 +802,84 @@ function Products() {
             </div>
           )}
         </form>
+      </section>
+
+      <section className="admin-panel">
+        <div className="section-heading">
+          <h2>Bulk Product Images</h2>
+          {bulkImages.length > 0 && (
+            <span>
+              {bulkImageIndex + 1} of {bulkImages.length}
+            </span>
+          )}
+        </div>
+
+        <div className="upload-panel">
+          <div>
+            <strong>Assign Images To Products</strong>
+            <p>
+              Select multiple images. Filenames matching a SKU are selected
+              automatically, or you can choose the product manually.
+            </p>
+          </div>
+          <input
+            type="file"
+            accept="image/*"
+            multiple
+            onChange={handleBulkImageSelection}
+          />
+        </div>
+
+        {currentBulkImage && (
+          <div className="bulk-image-assignment">
+            <div className="bulk-image-preview">
+              <img src={currentBulkImage.previewUrl} alt={currentBulkImage.fileName} />
+              <strong>{currentBulkImage.fileName}</strong>
+            </div>
+
+            <label>
+              Assign To Product
+              <select
+                value={currentBulkProductId}
+                onChange={(event) =>
+                  updateBulkAssignment(currentBulkImage.id, event.target.value)
+                }
+              >
+                <option value="">Choose product</option>
+                {products.map((product) => (
+                  <option key={product.id} value={product.id}>
+                    {product.sku || "NO SKU"} - {product.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <div className="button-row">
+              <button
+                type="button"
+                disabled={bulkImageIndex === 0}
+                onClick={() => setBulkImageIndex(bulkImageIndex - 1)}
+              >
+                Previous
+              </button>
+              <button type="button" onClick={skipBulkImage}>
+                Skip
+              </button>
+              <button
+                type="button"
+                disabled={!currentBulkProductId || isBulkUploading}
+                onClick={uploadCurrentBulkImage}
+              >
+                {isBulkUploading ? "Uploading..." : "Upload To Product"}
+              </button>
+              <button type="button" onClick={clearBulkImages}>
+                Clear Images
+              </button>
+            </div>
+
+            {bulkImageMessage && <p>{bulkImageMessage}</p>}
+          </div>
+        )}
       </section>
 
       <section className="admin-panel">

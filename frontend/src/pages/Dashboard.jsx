@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
-import { API_URL } from "../config";
+import { Link } from "react-router-dom";
+import { apiFetch } from "../config";
 
 function Dashboard() {
   const [dashboard, setDashboard] = useState(null);
 
   useEffect(() => {
-    fetch(`${API_URL}/dashboard`)
+    apiFetch("/dashboard")
       .then((res) => res.json())
       .then((data) => setDashboard(data))
       .catch((err) => console.error(err));
@@ -54,6 +55,40 @@ function Dashboard() {
           <strong>{dashboard.online_orders?.pending_fulfillment_count || 0}</strong>
           <p>Need packaging or shipping</p>
         </article>
+      </section>
+
+      <section className="admin-panel">
+        <div className="section-heading">
+          <h2>Low Stock Actions</h2>
+          <Link to="/inventory">Open Inventory</Link>
+        </div>
+
+        {!dashboard.low_stock_items || dashboard.low_stock_items.length === 0 ? (
+          <p>No low stock items right now.</p>
+        ) : (
+          <div className="table-wrap">
+            <table className="admin-table">
+              <thead>
+                <tr>
+                  <th>SKU</th>
+                  <th>Product</th>
+                  <th>Qty</th>
+                  <th>Reorder Level</th>
+                </tr>
+              </thead>
+              <tbody>
+                {dashboard.low_stock_items.map((product) => (
+                  <tr key={product.id}>
+                    <td>{product.sku}</td>
+                    <td>{product.name}</td>
+                    <td>{product.quantity_on_hand}</td>
+                    <td>{product.reorder_level}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </section>
     </div>
   );
