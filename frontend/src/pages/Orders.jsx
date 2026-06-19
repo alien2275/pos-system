@@ -90,6 +90,24 @@ function Orders() {
     loadOrders();
   }
 
+  async function archiveOrder(orderId) {
+    if (!confirm("Archive this shipped order? It will remain visible in Sales.")) {
+      return;
+    }
+
+    const response = await fetch(`${API_URL}/online-orders/${orderId}/archive`, {
+      method: "PUT",
+    });
+
+    if (!response.ok) {
+      const data = await response.json();
+      alert(data.detail || "Could not archive order");
+      return;
+    }
+
+    loadOrders();
+  }
+
   const packagingOrders = orders.filter(
     (order) => order.status === "pending_packaging"
   );
@@ -186,9 +204,14 @@ function Orders() {
         )}
 
         {order.status === "shipped" && (
-          <p>
-            {order.carrier}: {order.tracking_id}
-          </p>
+          <div className="button-row">
+            <p>
+              {order.carrier}: {order.tracking_id}
+            </p>
+            <button onClick={() => archiveOrder(order.id)}>
+              Archive
+            </button>
+          </div>
         )}
       </article>
     );

@@ -190,12 +190,14 @@ def ensure_event_table():
                     shipping_country TEXT,
                     payment_provider TEXT,
                     payment_reference TEXT,
+                    sale_id INTEGER REFERENCES sales(id),
                     carrier TEXT,
                     tracking_id TEXT,
                     status TEXT NOT NULL DEFAULT 'pending_packaging',
                     total_cents INTEGER NOT NULL DEFAULT 0,
                     packaged_at TIMESTAMP,
                     shipped_at TIMESTAMP,
+                    archived_at TIMESTAMP,
                     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
                 );
@@ -204,8 +206,10 @@ def ensure_event_table():
         )
         conn.execute(text("ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS carrier TEXT;"))
         conn.execute(text("ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS tracking_id TEXT;"))
+        conn.execute(text("ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS sale_id INTEGER REFERENCES sales(id);"))
         conn.execute(text("ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS packaged_at TIMESTAMP;"))
         conn.execute(text("ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS shipped_at TIMESTAMP;"))
+        conn.execute(text("ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS archived_at TIMESTAMP;"))
         conn.execute(
             text(
                 "ALTER TABLE online_orders ALTER COLUMN status SET DEFAULT 'pending_packaging';"
@@ -234,6 +238,71 @@ def ensure_event_table():
                 """
             )
         )
+        existing_online_orders = conn.execute(
+            text(
+                """
+                SELECT *
+                FROM online_orders
+                WHERE sale_id IS NULL;
+                """
+            )
+        )
+
+        for order in existing_online_orders:
+            order_data = dict(order._mapping)
+            sale = conn.execute(
+                text(
+                    """
+                    INSERT INTO sales (total_cents)
+                    VALUES (:total_cents)
+                    RETURNING *;
+                    """
+                ),
+                {"total_cents": order_data["total_cents"]},
+            ).first()
+            sale_id = sale._mapping["id"]
+
+            conn.execute(
+                text(
+                    """
+                    UPDATE online_orders
+                    SET sale_id = :sale_id,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = :id;
+                    """
+                ),
+                {"id": order_data["id"], "sale_id": sale_id},
+            )
+
+            order_items = conn.execute(
+                text(
+                    """
+                    SELECT *
+                    FROM online_order_items
+                    WHERE order_id = :order_id;
+                    """
+                ),
+                {"order_id": order_data["id"]},
+            )
+
+            for item in order_items:
+                item_data = dict(item._mapping)
+                conn.execute(
+                    text(
+                        """
+                        INSERT INTO sale_items
+                        (sale_id, product_id, quantity, price_cents)
+                        VALUES
+                        (:sale_id, :product_id, :quantity, :price_cents);
+                        """
+                    ),
+                    {
+                        "sale_id": sale_id,
+                        "product_id": item_data["product_id"],
+                        "quantity": item_data["quantity"],
+                        "price_cents": item_data["price_cents"],
+                    },
+                )
     
 
 @app.get("/")
@@ -387,6 +456,29 @@ def create_store_order(order: OnlineOrderCreate):
         ).first()
 
         order_id = order_row._mapping["id"]
+        sale_row = conn.execute(
+            text(
+                """
+                INSERT INTO sales (total_cents)
+                VALUES (:total_cents)
+                RETURNING *;
+                """
+            ),
+            {"total_cents": total_cents},
+        ).first()
+        sale_id = sale_row._mapping["id"]
+
+        conn.execute(
+            text(
+                """
+                UPDATE online_orders
+                SET sale_id = :sale_id,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = :id;
+                """
+            ),
+            {"id": order_id, "sale_id": sale_id},
+        )
 
         for item in order_items:
             conn.execute(
@@ -399,6 +491,23 @@ def create_store_order(order: OnlineOrderCreate):
                     """
                 ),
                 {"order_id": order_id, **item},
+            )
+
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO sale_items
+                    (sale_id, product_id, quantity, price_cents)
+                    VALUES
+                    (:sale_id, :product_id, :quantity, :price_cents);
+                    """
+                ),
+                {
+                    "sale_id": sale_id,
+                    "product_id": item["product_id"],
+                    "quantity": item["quantity"],
+                    "price_cents": item["price_cents"],
+                },
             )
 
             conn.execute(
@@ -430,7 +539,7 @@ def create_store_order(order: OnlineOrderCreate):
             )
 
     return {
-        "order": dict(order_row._mapping),
+        "order": {**dict(order_row._mapping), "sale_id": sale_id},
         "items": order_items,
     }
 
@@ -488,13 +597,14 @@ def get_events():
 
 
 @app.get("/online-orders")
-def get_online_orders():
+def get_online_orders(include_archived: bool = False):
     with engine.connect() as conn:
         orders = conn.execute(
             text(
                 """
                 SELECT *
                 FROM online_orders
+                WHERE (:include_archived = TRUE OR archived_at IS NULL)
                 ORDER BY
                     CASE status
                         WHEN 'pending_packaging' THEN 1
@@ -504,7 +614,8 @@ def get_online_orders():
                     END,
                     created_at DESC;
                 """
-            )
+            ),
+            {"include_archived": include_archived},
         )
 
         order_rows = [dict(row._mapping) for row in orders]
@@ -590,6 +701,32 @@ def mark_online_order_shipped(order_id: int, shipment: OnlineOrderShipmentUpdate
 
     if result is None:
         raise HTTPException(status_code=404, detail="Online order not found")
+
+    return dict(result._mapping)
+
+
+@app.put("/online-orders/{order_id}/archive")
+def archive_online_order(order_id: int):
+    with engine.begin() as conn:
+        result = conn.execute(
+            text(
+                """
+                UPDATE online_orders
+                SET archived_at = CURRENT_TIMESTAMP,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = :id
+                  AND status = 'shipped'
+                RETURNING *;
+                """
+            ),
+            {"id": order_id},
+        ).first()
+
+    if result is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Shipped online order not found",
+        )
 
     return dict(result._mapping)
 
@@ -1108,11 +1245,15 @@ def get_sales_range(start_date: str, end_date: str):
         sales = conn.execute(
             text(
                 """
-                SELECT *
+                SELECT
+                    sales.*,
+                    online_orders.id AS online_order_id,
+                    online_orders.status AS online_order_status
                 FROM sales
-                WHERE created_at >= :start_date
-                  AND created_at < (CAST(:end_date AS date) + INTERVAL '1 day')
-                ORDER BY created_at DESC;
+                LEFT JOIN online_orders ON online_orders.sale_id = sales.id
+                WHERE sales.created_at >= :start_date
+                  AND sales.created_at < (CAST(:end_date AS date) + INTERVAL '1 day')
+                ORDER BY sales.created_at DESC;
                 """
             ),
             {
@@ -1174,9 +1315,21 @@ def get_sale(sale_id: int):
             {"sale_id": sale_id},
         )
 
+        online_order = conn.execute(
+            text(
+                """
+                SELECT *
+                FROM online_orders
+                WHERE sale_id = :sale_id;
+                """
+            ),
+            {"sale_id": sale_id},
+        ).first()
+
         return {
             "sale": dict(sale._mapping),
             "items": [dict(row._mapping) for row in items],
+            "online_order": dict(online_order._mapping) if online_order else None,
         }
     
 

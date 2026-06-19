@@ -96,6 +96,7 @@ function Sales() {
                 <thead>
                   <tr>
                     <th>Sale ID</th>
+                    <th>Type</th>
                     <th>Date</th>
                     <th>Total</th>
                     <th>Actions</th>
@@ -106,6 +107,7 @@ function Sales() {
                   {salesData.sales.map((sale) => (
                     <tr key={sale.id}>
                       <td>{sale.id}</td>
+                      <td>{sale.online_order_id ? "Online" : "POS"}</td>
                       <td>{sale.created_at}</td>
                       <td>${(sale.total_cents / 100).toFixed(2)}</td>
                       <td>
@@ -130,6 +132,20 @@ function Sales() {
           </div>
 
           <p>Date: {selectedSale.sale.created_at}</p>
+
+          {selectedSale.online_order && (
+            <div className="selected-summary">
+              <span>Online Order #{selectedSale.online_order.id}</span>
+              <span>Status: {selectedSale.online_order.status}</span>
+              {selectedSale.online_order.carrier &&
+                selectedSale.online_order.tracking_id && (
+                  <span>
+                    {selectedSale.online_order.carrier}:{" "}
+                    {selectedSale.online_order.tracking_id}
+                  </span>
+                )}
+            </div>
+          )}
 
           <div className="table-wrap">
             <table className="admin-table">
