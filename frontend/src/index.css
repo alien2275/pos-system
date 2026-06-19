@@ -688,6 +688,15 @@ button:disabled {
   text-align: center;
 }
 
+.store-cart-jump {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 40;
+  min-width: 112px;
+  box-shadow: var(--shadow);
+}
+
 .order-card {
   display: grid;
   gap: 14px;

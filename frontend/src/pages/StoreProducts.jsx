@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { API_URL } from "../config";
 
 function getImageSrc(imageUrl) {
@@ -37,6 +37,7 @@ function StoreProducts() {
   const [orderMessage, setOrderMessage] = useState("");
   const [cartNotice, setCartNotice] = useState("");
   const [lastAddedProductId, setLastAddedProductId] = useState(null);
+  const cartRef = useRef(null);
 
   useEffect(() => {
     fetch(`${API_URL}/store/products`)
@@ -119,6 +120,14 @@ function StoreProducts() {
     (sum, item) => sum + item.price_cents * item.quantity,
     0
   );
+  const cartItemCount = cart.reduce((sum, item) => sum + item.quantity, 0);
+
+  function scrollToCart() {
+    cartRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+  }
 
   async function placeOrder(event) {
     event.preventDefault();
@@ -185,6 +194,12 @@ function StoreProducts() {
 
       {cartNotice && <div className="store-cart-notice">{cartNotice}</div>}
 
+      {cartItemCount > 0 && (
+        <button className="store-cart-jump" type="button" onClick={scrollToCart}>
+          Cart ({cartItemCount})
+        </button>
+      )}
+
       {isLoading && <p>Loading products...</p>}
       {error && <p>{error}</p>}
       {orderMessage && <p className="store-order-message">{orderMessage}</p>}
@@ -224,7 +239,7 @@ function StoreProducts() {
             ))}
           </section>
 
-          <aside className="store-cart">
+          <aside className="store-cart" ref={cartRef}>
             <h2>Cart</h2>
 
             {cart.length === 0 ? (
