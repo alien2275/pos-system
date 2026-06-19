@@ -23,10 +23,12 @@ app.add_middleware(
 
 UPLOAD_ROOT = os.getenv("UPLOAD_ROOT", "uploads")
 PRODUCT_UPLOAD_DIR = os.path.join(UPLOAD_ROOT, "products")
+EVENT_UPLOAD_DIR = os.path.join(UPLOAD_ROOT, "events")
 ALLOWED_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
 
 os.makedirs(PRODUCT_UPLOAD_DIR, exist_ok=True)
+os.makedirs(EVENT_UPLOAD_DIR, exist_ok=True)
 app.mount("/uploads", StaticFiles(directory=UPLOAD_ROOT), name="uploads")
 
 DB_USER = os.getenv("POSTGRES_USER")
@@ -91,6 +93,49 @@ class SaleItemCreate(BaseModel):
 
 class SaleCreate(BaseModel):
     items: List[SaleItemCreate]
+
+
+class EventCreate(BaseModel):
+    title: str
+    location: Optional[str] = None
+    description: Optional[str] = None
+    start_date: str
+    end_date: Optional[str] = None
+    image_url: Optional[str] = None
+    is_public: bool = True
+
+
+class EventUpdate(BaseModel):
+    title: Optional[str] = None
+    location: Optional[str] = None
+    description: Optional[str] = None
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    image_url: Optional[str] = None
+    is_public: Optional[bool] = None
+
+
+@app.on_event("startup")
+def ensure_event_table():
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS events (
+                    id SERIAL PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    location TEXT,
+                    description TEXT,
+                    start_date DATE NOT NULL,
+                    end_date DATE,
+                    image_url TEXT,
+                    is_public BOOLEAN NOT NULL DEFAULT TRUE,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
+                """
+            )
+        )
     
 
 @app.get("/")
@@ -149,6 +194,175 @@ def get_store_products():
             dict(row._mapping)
             for row in result
         ]
+
+
+@app.get("/store/events")
+def get_store_events():
+    with engine.connect() as conn:
+        result = conn.execute(
+            text(
+                """
+                SELECT *
+                FROM events
+                WHERE is_public = TRUE
+                  AND COALESCE(end_date, start_date) >= CURRENT_DATE
+                ORDER BY start_date ASC, title ASC;
+                """
+            )
+        )
+
+        return [dict(row._mapping) for row in result]
+
+
+@app.get("/events")
+def get_events():
+    with engine.connect() as conn:
+        result = conn.execute(
+            text(
+                """
+                SELECT *
+                FROM events
+                ORDER BY start_date DESC, title ASC;
+                """
+            )
+        )
+
+        return [dict(row._mapping) for row in result]
+
+
+@app.post("/events")
+def create_event(event: EventCreate):
+    with engine.begin() as conn:
+        result = conn.execute(
+            text(
+                """
+                INSERT INTO events
+                (
+                    title,
+                    location,
+                    description,
+                    start_date,
+                    end_date,
+                    image_url,
+                    is_public
+                )
+                VALUES
+                (
+                    :title,
+                    :location,
+                    :description,
+                    :start_date,
+                    :end_date,
+                    :image_url,
+                    :is_public
+                )
+                RETURNING *;
+                """
+            ),
+            event.model_dump(),
+        ).first()
+
+    return dict(result._mapping)
+
+
+@app.put("/events/{event_id}")
+def update_event(event_id: int, event: EventUpdate):
+    fields = event.model_dump(exclude_unset=True)
+
+    if not fields:
+        raise HTTPException(status_code=400, detail="No update fields provided")
+
+    set_clause = ", ".join([f"{key} = :{key}" for key in fields.keys()])
+
+    query = f"""
+        UPDATE events
+        SET {set_clause},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = :id
+        RETURNING *;
+    """
+
+    fields["id"] = event_id
+
+    with engine.begin() as conn:
+        result = conn.execute(text(query), fields).first()
+
+    if result is None:
+        raise HTTPException(status_code=404, detail="Event not found")
+
+    return dict(result._mapping)
+
+
+@app.post("/events/{event_id}/image")
+async def upload_event_image(event_id: int, file: UploadFile = File(...)):
+    with engine.connect() as conn:
+        event = conn.execute(
+            text("SELECT * FROM events WHERE id = :id;"),
+            {"id": event_id},
+        ).first()
+
+    if event is None:
+        raise HTTPException(status_code=404, detail="Event not found")
+
+    _, extension = os.path.splitext(file.filename or "")
+    extension = extension.lower()
+
+    if extension not in ALLOWED_IMAGE_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail="Image must be a JPG, PNG, WebP, or GIF file",
+        )
+
+    if not file.content_type or not file.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="Uploaded file must be an image")
+
+    contents = await file.read()
+
+    if len(contents) > MAX_IMAGE_BYTES:
+        raise HTTPException(status_code=400, detail="Image must be 5 MB or smaller")
+
+    filename = f"event-{event_id}-{uuid.uuid4().hex}{extension}"
+    disk_path = os.path.join(EVENT_UPLOAD_DIR, filename)
+    image_url = f"/uploads/events/{filename}"
+
+    with open(disk_path, "wb") as image_file:
+        image_file.write(contents)
+
+    with engine.begin() as conn:
+        updated_event = conn.execute(
+            text(
+                """
+                UPDATE events
+                SET image_url = :image_url,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = :id
+                RETURNING *;
+                """
+            ),
+            {"id": event_id, "image_url": image_url},
+        ).first()
+
+    return dict(updated_event._mapping)
+
+
+@app.delete("/events/{event_id}")
+def delete_event(event_id: int):
+    with engine.begin() as conn:
+        result = conn.execute(
+            text(
+                """
+                DELETE FROM events
+                WHERE id = :id
+                RETURNING *;
+                """
+            ),
+            {"id": event_id},
+        ).first()
+
+    if result is None:
+        raise HTTPException(status_code=404, detail="Event not found")
+
+    return {"deleted": True, "event": dict(result._mapping)}
 
 
 @app.get("/products/search/{query}")

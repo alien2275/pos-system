@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import { useEffect, useState } from "react";
 
 const API_URL =
@@ -19,70 +20,63 @@ function getImageSrc(imageUrl) {
   return imageUrl;
 }
 
+function formatEventDate(event) {
+  if (!event.end_date || event.end_date === event.start_date) {
+    return event.start_date;
+  }
+
+  return `${event.start_date} to ${event.end_date}`;
+}
+
 function Store() {
-  const [products, setProducts] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState("");
+  const [events, setEvents] = useState([]);
+  const [isLoadingEvents, setIsLoadingEvents] = useState(true);
 
   useEffect(() => {
-    fetch(`${API_URL}/store/products`)
-      .then(async (res) => {
-        const data = await res.json();
-
-        if (!res.ok) {
-          throw new Error(data.detail || "Store products failed to load");
-        }
-
-        setProducts(data);
-      })
-      .catch((err) => {
-        console.error(err);
-        setError("Store products are unavailable right now.");
-      })
-      .finally(() => setIsLoading(false));
+    fetch(`${API_URL}/store/events`)
+      .then((res) => res.json())
+      .then((data) => setEvents(data))
+      .catch((err) => console.error(err))
+      .finally(() => setIsLoadingEvents(false));
   }, []);
 
   return (
     <main className="store-page">
-      <header className="store-header">
+      <section className="store-landing">
         <h1>sammyinthesky</h1>
         <p>Handmade jewelry, stickers, 3D prints, and crafts.</p>
-      </header>
+        <Link className="store-product-link" to="/store/products">
+          View Products
+        </Link>
+      </section>
 
-      {isLoading && <p>Loading products...</p>}
-      {error && <p>{error}</p>}
+      <section className="store-events-section">
+        <h2>Upcoming Events</h2>
 
-      {!isLoading && !error && products.length === 0 && (
-        <p>No products are available right now.</p>
-      )}
+        {isLoadingEvents && <p>Loading events...</p>}
 
-      {!isLoading && !error && products.length > 0 && (
-        <section className="store-grid">
-          {products.map((product) => (
-            <article className="store-product" key={product.id}>
-              <div className="store-product-image">
-                {product.image_url ? (
-                  <img src={getImageSrc(product.image_url)} alt={product.name} />
-                ) : (
-                  <span>No Image</span>
+        {!isLoadingEvents && events.length === 0 && (
+          <p>No upcoming events are listed right now.</p>
+        )}
+
+        {!isLoadingEvents && events.length > 0 && (
+          <div className="store-events-grid">
+            {events.map((event) => (
+              <article className="store-event-card" key={event.id}>
+                {event.image_url && (
+                  <img src={getImageSrc(event.image_url)} alt={event.title} />
                 )}
-              </div>
-
-              <div className="store-product-body">
-                <p className="store-product-category">{product.category}</p>
-                <h2>{product.name}</h2>
-                <p className="store-product-description">
-                  {product.public_description || "Handmade item available now."}
-                </p>
-                <div className="store-product-footer">
-                  <strong>${(product.price_cents / 100).toFixed(2)}</strong>
-                  <span>{product.quantity_on_hand} available</span>
+                <div>
+                  <p className="store-event-date">{formatEventDate(event)}</p>
+                  <h3>{event.title}</h3>
+                  {event.location && <p>{event.location}</p>}
+                  {event.description && <p>{event.description}</p>}
                 </div>
-              </div>
-            </article>
-          ))}
-        </section>
-      )}
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
     </main>
   );
 }
