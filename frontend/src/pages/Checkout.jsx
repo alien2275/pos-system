@@ -259,6 +259,21 @@ function Checkout() {
       {lastSale && (
         <section className="admin-panel receipt">
           <h2 className="no-print">Receipt</h2>
+
+          <div className="button-row receipt-actions no-print">
+            <button onClick={() => window.print()}>Print Receipt</button>
+            <button onClick={emailReceipt}>Email Receipt</button>
+
+            <button
+              onClick={() => {
+                setLastSale(null);
+                setBarcode("");
+              }}
+            >
+              New Sale
+            </button>
+          </div>
+
           <h3>sammyinthesky</h3>
 
           <p className="receipt-tagline">Handmade Jewelry & Crafts</p>
@@ -340,19 +355,6 @@ function Checkout() {
             </div>
           )}
 
-          <div className="button-row receipt-actions no-print">
-            <button onClick={() => window.print()}>Print Receipt</button>
-            <button onClick={emailReceipt}>Email Receipt</button>
-
-            <button
-              onClick={() => {
-                setLastSale(null);
-                setBarcode("");
-              }}
-            >
-              New Sale
-            </button>
-          </div>
         </section>
       )}
 

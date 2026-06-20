@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { apiFetch } from "../config";
+import { API_URL, apiFetch } from "../config";
 
 function Sales() {
   const [salesData, setSalesData] = useState(null);
@@ -67,6 +67,239 @@ function Sales() {
 
     setSalesData(data);
     setSelectedSale(null);
+  }
+
+  function escapeHtml(value) {
+    return String(value ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+  }
+
+  function formatMoney(cents) {
+    return `$${(Number(cents || 0) / 100).toFixed(2)}`;
+  }
+
+  function printSaleReceipt(mode) {
+    if (!selectedSale) {
+      return;
+    }
+
+    const isThermal = mode === "thermal";
+    const sale = selectedSale.sale;
+    const onlineOrder = selectedSale.online_order;
+    const orderNumber = sale.order_number || sale.id;
+    const customerName =
+      sale.customer_name || onlineOrder?.customer_name || "";
+    const subtotalCents = sale.subtotal_cents || sale.total_cents;
+    const paymentType = sale.payment_type || (onlineOrder ? "online" : "pos");
+    const receiptTitle = `Order ${orderNumber}`;
+
+    const itemRows = selectedSale.items
+      .map(
+        (item) => `
+          <tr>
+            <td>${escapeHtml(item.quantity)} x ${escapeHtml(item.name)}</td>
+            <td>${formatMoney(item.price_cents)}</td>
+            <td>${formatMoney(item.price_cents * item.quantity)}</td>
+          </tr>
+        `
+      )
+      .join("");
+
+    const trackingLine =
+      onlineOrder?.carrier && onlineOrder?.tracking_id
+        ? `<p><strong>Tracking:</strong> ${escapeHtml(
+            onlineOrder.carrier
+          )} ${escapeHtml(onlineOrder.tracking_id)}</p>`
+        : "";
+
+    const roundingLine =
+      Number(sale.rounding_adjustment_cents || 0) !== 0
+        ? `<div><span>Rounding</span><strong>${formatSignedMoney(
+            sale.rounding_adjustment_cents
+          )}</strong></div>`
+        : "";
+
+    const printWindow = window.open("", "_blank", "width=520,height=760");
+
+    if (!printWindow) {
+      alert("Allow pop-ups to print the receipt.");
+      return;
+    }
+
+    printWindow.document.write(`
+      <!doctype html>
+      <html>
+        <head>
+          <title>${escapeHtml(receiptTitle)}</title>
+          <style>
+            * { box-sizing: border-box; }
+            body {
+              margin: 0;
+              background: #fff;
+              color: #111;
+              font-family: Arial, sans-serif;
+              font-size: ${isThermal ? "10px" : "13px"};
+              line-height: 1.35;
+            }
+            .receipt {
+              width: ${isThermal ? "58mm" : "100%"};
+              max-width: ${isThermal ? "58mm" : "760px"};
+              margin: ${isThermal ? "0" : "24px auto"};
+              padding: ${isThermal ? "2mm" : "28px"};
+              border: ${isThermal ? "0" : "1px solid #ddd"};
+            }
+            h1, h2, p { margin: 0; }
+            h1 {
+              text-align: center;
+              font-size: ${isThermal ? "16px" : "26px"};
+              margin-bottom: 4px;
+            }
+            h2 {
+              text-align: center;
+              font-size: ${isThermal ? "12px" : "18px"};
+              margin-bottom: 12px;
+            }
+            .tagline, .qr-copy {
+              text-align: center;
+              color: #333;
+              margin-bottom: 10px;
+            }
+            .meta {
+              border-top: 1px solid #999;
+              border-bottom: 1px solid #999;
+              padding: 8px 0;
+              margin: 10px 0;
+            }
+            .meta p { margin: 2px 0; }
+            table {
+              width: 100%;
+              border-collapse: collapse;
+              margin: 10px 0;
+            }
+            th {
+              text-align: left;
+              border-bottom: 1px solid #999;
+              padding: 4px 0;
+            }
+            td {
+              border-bottom: 1px solid #ddd;
+              padding: 5px 0;
+              vertical-align: top;
+            }
+            th:nth-child(2),
+            th:nth-child(3),
+            td:nth-child(2),
+            td:nth-child(3) {
+              text-align: right;
+            }
+            .totals {
+              border-top: 1px solid #999;
+              padding-top: 8px;
+              margin-top: 8px;
+            }
+            .totals div {
+              display: flex;
+              justify-content: space-between;
+              gap: 10px;
+              margin: 3px 0;
+            }
+            .grand-total {
+              font-size: ${isThermal ? "13px" : "18px"};
+              border-top: 1px solid #999;
+              padding-top: 6px;
+              margin-top: 6px;
+            }
+            .qr {
+              text-align: center;
+              margin-top: 16px;
+            }
+            .qr img {
+              width: ${isThermal ? "34mm" : "120px"};
+              height: ${isThermal ? "34mm" : "120px"};
+            }
+            .qr small {
+              display: block;
+              overflow-wrap: anywhere;
+              margin-top: 4px;
+            }
+            @page {
+              size: ${isThermal ? "58mm auto" : "A4"};
+              margin: ${isThermal ? "2mm" : "14mm"};
+            }
+            @media print {
+              body { margin: 0; }
+              .receipt {
+                margin: 0 auto;
+                border: 0;
+              }
+            }
+          </style>
+        </head>
+        <body>
+          <main class="receipt">
+            <h1>sammyinthesky</h1>
+            <p class="tagline">Handmade Jewelry & Crafts</p>
+            <h2>${escapeHtml(receiptTitle)}</h2>
+
+            <section class="meta">
+              <p><strong>Date:</strong> ${escapeHtml(sale.created_at)}</p>
+              ${
+                customerName
+                  ? `<p><strong>Customer:</strong> ${escapeHtml(
+                      customerName
+                    )}</p>`
+                  : ""
+              }
+              <p><strong>Type:</strong> ${escapeHtml(
+                onlineOrder ? "Online" : "POS"
+              )}</p>
+              <p><strong>Payment:</strong> ${escapeHtml(paymentType)}</p>
+              ${trackingLine}
+            </section>
+
+            <table>
+              <thead>
+                <tr>
+                  <th>Item</th>
+                  <th>Each</th>
+                  <th>Total</th>
+                </tr>
+              </thead>
+              <tbody>${itemRows}</tbody>
+            </table>
+
+            <section class="totals">
+              <div><span>Subtotal</span><strong>${formatMoney(
+                subtotalCents
+              )}</strong></div>
+              <div><span>Tax</span><strong>${formatMoney(
+                sale.tax_cents
+              )}</strong></div>
+              ${roundingLine}
+              <div class="grand-total"><span>Total</span><strong>${formatMoney(
+                sale.total_cents
+              )}</strong></div>
+            </section>
+
+            <section class="qr">
+              <img src="${API_URL}/settings/store-qr.png" alt="Store QR code" />
+              <p class="qr-copy">Scan for upcoming events and online shopping.</p>
+            </section>
+          </main>
+          <script>
+            window.addEventListener("load", () => {
+              window.focus();
+              setTimeout(() => window.print(), 250);
+            });
+          </script>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
   }
 
   return (
@@ -220,6 +453,15 @@ function Sales() {
                 )}
             </div>
           )}
+
+          <div className="button-row">
+            <button onClick={() => printSaleReceipt("a4")}>
+              Print A4 Receipt
+            </button>
+            <button onClick={() => printSaleReceipt("thermal")}>
+              Print Thermal Receipt
+            </button>
+          </div>
 
           <div className="table-wrap">
             <table className="admin-table">
