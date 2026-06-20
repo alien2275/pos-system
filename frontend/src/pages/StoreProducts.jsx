@@ -41,6 +41,7 @@ function StoreProducts() {
   const [orderMessage, setOrderMessage] = useState("");
   const [cartNotice, setCartNotice] = useState("");
   const [lastAddedProductId, setLastAddedProductId] = useState(null);
+  const [galleryModal, setGalleryModal] = useState(null);
   const [settings, setSettings] = useState({
     tax_state: "MD",
     tax_rate_percent: "6.00",
@@ -201,6 +202,42 @@ function StoreProducts() {
     });
   }
 
+  function getProductImages(product) {
+    const images = [];
+
+    if (product.image_url) {
+      images.push({ id: "main", image_url: product.image_url });
+    }
+
+    return [...images, ...(product.images || [])];
+  }
+
+  function openGallery(product) {
+    const images = getProductImages(product);
+    if (images.length === 0) {
+      return;
+    }
+
+    setGalleryModal({
+      product,
+      images,
+      index: 0,
+    });
+  }
+
+  function moveGallery(direction) {
+    if (!galleryModal) {
+      return;
+    }
+
+    setGalleryModal({
+      ...galleryModal,
+      index:
+        (galleryModal.index + direction + galleryModal.images.length) %
+        galleryModal.images.length,
+    });
+  }
+
   async function placeOrder(event) {
     event.preventDefault();
 
@@ -299,6 +336,44 @@ function StoreProducts() {
         </button>
       )}
 
+      {galleryModal && (
+        <div className="store-image-modal" role="dialog" aria-modal="true">
+          <div className="store-image-modal-panel">
+            <button
+              className="store-image-modal-close"
+              type="button"
+              onClick={() => setGalleryModal(null)}
+            >
+              Close
+            </button>
+
+            <img
+              src={getImageSrc(galleryModal.images[galleryModal.index].image_url)}
+              alt={galleryModal.product.name}
+            />
+
+            <div className="section-heading">
+              <div>
+                <h2>{galleryModal.product.name}</h2>
+                <p>
+                  Image {galleryModal.index + 1} of {galleryModal.images.length}
+                </p>
+              </div>
+              {galleryModal.images.length > 1 && (
+                <div className="button-row compact">
+                  <button type="button" onClick={() => moveGallery(-1)}>
+                    Previous
+                  </button>
+                  <button type="button" onClick={() => moveGallery(1)}>
+                    Next
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {isLoading && <p>Loading products...</p>}
       {error && <p>{error}</p>}
       {orderMessage && <p className="store-order-message">{orderMessage}</p>}
@@ -351,7 +426,12 @@ function StoreProducts() {
                           }`}
                           key={product.id}
                         >
-                          <div className="store-product-image">
+                          <button
+                            className="store-product-image image-button"
+                            type="button"
+                            onClick={() => openGallery(product)}
+                            disabled={!product.image_url && !(product.images || []).length}
+                          >
                             {product.image_url ? (
                               <img
                                 src={getImageSrc(product.image_url)}
@@ -363,7 +443,7 @@ function StoreProducts() {
                             {isSoldOut && (
                               <span className="sold-out-badge">Sold Out</span>
                             )}
-                          </div>
+                          </button>
 
                           <div className="store-product-body">
                             <p className="store-product-category">{category}</p>

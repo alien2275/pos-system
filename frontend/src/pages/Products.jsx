@@ -5,7 +5,10 @@ function Products() {
   const [products, setProducts] = useState([]);
   const [editingProductId, setEditingProductId] = useState(null);
   const [imageFile, setImageFile] = useState(null);
+  const [galleryFiles, setGalleryFiles] = useState([]);
+  const [productGalleryImages, setProductGalleryImages] = useState([]);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const [isUploadingGallery, setIsUploadingGallery] = useState(false);
   const [importFile, setImportFile] = useState(null);
   const [isImporting, setIsImporting] = useState(false);
   const [importResult, setImportResult] = useState(null);
@@ -54,6 +57,18 @@ function Products() {
     apiFetch("/products")
       .then((res) => res.json())
       .then((data) => setProducts(data))
+      .catch((err) => console.error(err));
+  }
+
+  function loadProductGallery(productId) {
+    if (!productId) {
+      setProductGalleryImages([]);
+      return;
+    }
+
+    apiFetch(`/products/${productId}/images`)
+      .then((res) => res.json())
+      .then((data) => setProductGalleryImages(data))
       .catch((err) => console.error(err));
   }
 
@@ -209,6 +224,8 @@ function Products() {
   function startEdit(product) {
     setEditingProductId(product.id);
     setImageFile(null);
+    setGalleryFiles([]);
+    loadProductGallery(product.id);
 
     setForm({
       sku: product.sku || "",
@@ -230,6 +247,8 @@ function Products() {
     setEditingProductId(null);
     setForm(emptyForm);
     setImageFile(null);
+    setGalleryFiles([]);
+    setProductGalleryImages([]);
   }
 
   async function uploadProductImage(productId, fileToUpload = imageFile) {
@@ -292,6 +311,61 @@ function Products() {
       setImageFile(null);
       loadProducts();
     }
+  }
+
+  async function uploadGalleryImages() {
+    if (!editingProductId || galleryFiles.length === 0) {
+      alert("Choose one or more gallery images first");
+      return;
+    }
+
+    setIsUploadingGallery(true);
+
+    try {
+      for (const file of galleryFiles) {
+        const imageData = new FormData();
+        imageData.append("file", file);
+
+        const response = await apiFetch(`/products/${editingProductId}/images`, {
+          method: "POST",
+          body: imageData,
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+          alert(data.detail || `Gallery upload failed for ${file.name}`);
+          return;
+        }
+      }
+
+      setGalleryFiles([]);
+      loadProductGallery(editingProductId);
+    } catch (err) {
+      console.error(err);
+      alert("Gallery upload failed");
+    } finally {
+      setIsUploadingGallery(false);
+    }
+  }
+
+  async function deleteGalleryImage(imageId) {
+    if (!confirm("Delete this gallery image?")) {
+      return;
+    }
+
+    const response = await apiFetch(`/product-images/${imageId}`, {
+      method: "DELETE",
+    });
+
+    if (!response.ok) {
+      const data = await response.json();
+      alert(data.detail || "Delete gallery image failed");
+      return;
+    }
+
+    setProductGalleryImages(
+      productGalleryImages.filter((image) => image.id !== imageId)
+    );
   }
 
   function deleteProduct(id) {
@@ -631,6 +705,43 @@ function Products() {
         {imageFile && !editingProductId && (
           <div className="upload-panel">
             Selected image: {imageFile.name}
+          </div>
+        )}
+
+        {editingProductId && (
+          <div className="upload-panel">
+            <div>
+              <strong>Additional Product Photos</strong>
+              <p>Upload extra images customers can browse on the store page.</p>
+            </div>
+            <input
+              type="file"
+              accept="image/*"
+              multiple
+              onChange={(event) =>
+                setGalleryFiles(Array.from(event.target.files || []))
+              }
+            />
+            <button
+              type="button"
+              onClick={uploadGalleryImages}
+              disabled={galleryFiles.length === 0 || isUploadingGallery}
+            >
+              {isUploadingGallery ? "Uploading..." : "Upload Gallery Photos"}
+            </button>
+          </div>
+        )}
+
+        {editingProductId && productGalleryImages.length > 0 && (
+          <div className="gallery-thumb-grid">
+            {productGalleryImages.map((image) => (
+              <div className="gallery-thumb-card" key={image.id}>
+                <img src={getImageSrc(image.image_url)} alt="Product gallery" />
+                <button type="button" onClick={() => deleteGalleryImage(image.id)}>
+                  Delete
+                </button>
+              </div>
+            ))}
           </div>
         )}
 

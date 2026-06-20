@@ -14,6 +14,9 @@ function Settings() {
     start_date: today,
     end_date: today,
   });
+  const [restoreFile, setRestoreFile] = useState(null);
+  const [restoreConfirm, setRestoreConfirm] = useState("");
+  const [isRestoring, setIsRestoring] = useState(false);
   const [message, setMessage] = useState("");
 
   useEffect(() => {
@@ -90,6 +93,47 @@ function Settings() {
 
   function downloadExport(path) {
     window.location.href = `${API_URL}${path}`;
+  }
+
+  async function restoreBackup(event) {
+    event.preventDefault();
+
+    if (!restoreFile) {
+      alert("Choose a backup ZIP first");
+      return;
+    }
+
+    if (restoreConfirm !== "RESTORE BACKUP") {
+      alert('Type "RESTORE BACKUP" to confirm restore');
+      return;
+    }
+
+    const restoreData = new FormData();
+    restoreData.append("confirm", restoreConfirm);
+    restoreData.append("file", restoreFile);
+    setIsRestoring(true);
+
+    try {
+      const response = await apiFetch("/backups/restore", {
+        method: "POST",
+        body: restoreData,
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        alert(data.detail || "Restore failed");
+        return;
+      }
+
+      setRestoreFile(null);
+      setRestoreConfirm("");
+      setMessage("Backup restored. Refresh the app to reload restored data.");
+    } catch (err) {
+      console.error(err);
+      alert("Restore failed");
+    } finally {
+      setIsRestoring(false);
+    }
   }
 
   return (
@@ -241,6 +285,41 @@ function Settings() {
             Download Backup ZIP
           </button>
         </div>
+
+        <form className="admin-form" onSubmit={restoreBackup}>
+          <div className="upload-panel">
+            <div>
+              <strong>Restore Backup ZIP</strong>
+              <p>
+                This replaces current database records and uploaded images with
+                the backup contents.
+              </p>
+            </div>
+            <input
+              type="file"
+              accept=".zip"
+              onChange={(event) => setRestoreFile(event.target.files[0] || null)}
+            />
+          </div>
+
+          <label>
+            Confirmation
+            <input
+              value={restoreConfirm}
+              onChange={(event) => setRestoreConfirm(event.target.value)}
+              placeholder="RESTORE BACKUP"
+            />
+          </label>
+
+          <div className="button-row">
+            <button
+              type="submit"
+              disabled={!restoreFile || restoreConfirm !== "RESTORE BACKUP" || isRestoring}
+            >
+              {isRestoring ? "Restoring..." : "Restore Backup"}
+            </button>
+          </div>
+        </form>
       </section>
     </div>
   );

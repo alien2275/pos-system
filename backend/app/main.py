@@ -6,12 +6,13 @@ import hmac
 import hashlib
 import json
 import zipfile
+import shutil
 from datetime import datetime
 from decimal import Decimal, ROUND_HALF_UP
 from io import BytesIO
 from typing import Literal, Optional, List
 
-from fastapi import FastAPI, File, HTTPException, Request, Response, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, Response, UploadFile
 from fastapi.responses import JSONResponse
 from openpyxl import load_workbook
 from openpyxl import Workbook
@@ -591,6 +592,18 @@ def ensure_event_table():
                 CREATE TABLE IF NOT EXISTS event_images (
                     id SERIAL PRIMARY KEY,
                     event_id INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+                    image_url TEXT NOT NULL,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS product_images (
+                    id SERIAL PRIMARY KEY,
+                    product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
                     image_url TEXT NOT NULL,
                     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
                 );
@@ -1316,6 +1329,7 @@ def download_full_backup():
     backup_tables = [
         "app_settings",
         "products",
+        "product_images",
         "inventory_transactions",
         "sales",
         "sale_items",
@@ -1377,6 +1391,140 @@ def download_full_backup():
     )
 
 
+@app.post("/backups/restore")
+async def restore_full_backup(
+    confirm: str = Form(...),
+    file: UploadFile = File(...),
+):
+    if confirm != "RESTORE BACKUP":
+        raise HTTPException(
+            status_code=400,
+            detail='Type "RESTORE BACKUP" to restore from a backup ZIP',
+        )
+
+    contents = await file.read()
+
+    try:
+        backup_zip = zipfile.ZipFile(BytesIO(contents))
+    except zipfile.BadZipFile:
+        raise HTTPException(status_code=400, detail="Backup file must be a valid ZIP")
+
+    if "database.json" not in backup_zip.namelist():
+        raise HTTPException(status_code=400, detail="Backup ZIP is missing database.json")
+
+    try:
+        backup_data = json.loads(backup_zip.read("database.json").decode("utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        raise HTTPException(status_code=400, detail="database.json is invalid")
+
+    database = backup_data.get("database")
+    if not isinstance(database, dict):
+        raise HTTPException(status_code=400, detail="Backup database payload is invalid")
+
+    restore_tables = [
+        "app_settings",
+        "products",
+        "product_images",
+        "inventory_transactions",
+        "sales",
+        "sale_items",
+        "events",
+        "event_images",
+        "online_orders",
+        "online_order_items",
+    ]
+    delete_order = [
+        "online_order_items",
+        "online_orders",
+        "event_images",
+        "events",
+        "sale_items",
+        "inventory_transactions",
+        "product_images",
+        "products",
+        "sales",
+        "app_settings",
+    ]
+    insert_order = [
+        "app_settings",
+        "products",
+        "sales",
+        "product_images",
+        "inventory_transactions",
+        "sale_items",
+        "events",
+        "event_images",
+        "online_orders",
+        "online_order_items",
+    ]
+
+    with engine.begin() as conn:
+        for table_name in delete_order:
+            conn.execute(text(f"DELETE FROM {table_name};"))
+
+        for table_name in insert_order:
+            rows = database.get(table_name, [])
+            if not rows:
+                continue
+
+            for row in rows:
+                columns = list(row.keys())
+                column_list = ", ".join(columns)
+                value_list = ", ".join(f":{column}" for column in columns)
+                conn.execute(
+                    text(
+                        f"""
+                        INSERT INTO {table_name} ({column_list})
+                        VALUES ({value_list});
+                        """
+                    ),
+                    row,
+                )
+
+        for table_name in restore_tables:
+            if table_name == "app_settings":
+                continue
+
+            conn.execute(
+                text(
+                    """
+                    SELECT setval(
+                        pg_get_serial_sequence(:table_name, 'id'),
+                        COALESCE((SELECT MAX(id) FROM """ + table_name + """), 1),
+                        true
+                    );
+                    """
+                ),
+                {"table_name": table_name},
+            )
+
+    if os.path.isdir(UPLOAD_ROOT):
+        shutil.rmtree(UPLOAD_ROOT)
+    os.makedirs(PRODUCT_UPLOAD_DIR, exist_ok=True)
+    os.makedirs(EVENT_UPLOAD_DIR, exist_ok=True)
+
+    for name in backup_zip.namelist():
+        if not name.startswith("uploads/") or name.endswith("/"):
+            continue
+
+        relative_path = name[len("uploads/"):]
+        target_path = os.path.abspath(os.path.join(UPLOAD_ROOT, relative_path))
+        upload_root_abs = os.path.abspath(UPLOAD_ROOT)
+
+        if os.path.commonpath([upload_root_abs, target_path]) != upload_root_abs:
+            raise HTTPException(status_code=400, detail="Backup contains unsafe path")
+
+        os.makedirs(os.path.dirname(target_path), exist_ok=True)
+        with open(target_path, "wb") as output_file:
+            output_file.write(backup_zip.read(name))
+
+    return {
+        "restored": True,
+        "tables": list(database.keys()),
+        "created_at": backup_data.get("created_at"),
+    }
+
+
 @app.get("/products")
 def get_products():
     with engine.connect() as conn:
@@ -1420,9 +1568,38 @@ def get_store_products():
             )
         )
 
+        products = [dict(row._mapping) for row in result]
+
+        if not products:
+            return []
+
+        images = conn.execute(
+            text(
+                """
+                SELECT *
+                FROM product_images
+                WHERE product_id IN (
+                    SELECT id
+                    FROM products
+                    WHERE is_active = TRUE
+                      AND is_public = TRUE
+                )
+                ORDER BY created_at ASC, id ASC;
+                """
+            )
+        )
+
+        images_by_product = {}
+        for row in images:
+            image = dict(row._mapping)
+            images_by_product.setdefault(image["product_id"], []).append(image)
+
         return [
-            dict(row._mapping)
-            for row in result
+            {
+                **product,
+                "images": images_by_product.get(product["id"], []),
+            }
+            for product in products
         ]
 
 
@@ -3068,6 +3245,102 @@ async def upload_product_image(product_id: int, file: UploadFile = File(...)):
         ).first()
 
     return dict(updated_product._mapping)
+
+
+@app.get("/products/{product_id}/images")
+def get_product_images(product_id: int):
+    with engine.connect() as conn:
+        product = conn.execute(
+            text("SELECT * FROM products WHERE id = :id;"),
+            {"id": product_id},
+        ).first()
+
+        if product is None:
+            raise HTTPException(status_code=404, detail="Product not found")
+
+        result = conn.execute(
+            text(
+                """
+                SELECT *
+                FROM product_images
+                WHERE product_id = :product_id
+                ORDER BY created_at ASC, id ASC;
+                """
+            ),
+            {"product_id": product_id},
+        )
+
+        return [dict(row._mapping) for row in result]
+
+
+@app.post("/products/{product_id}/images")
+async def upload_product_gallery_image(product_id: int, file: UploadFile = File(...)):
+    with engine.connect() as conn:
+        product = conn.execute(
+            text("SELECT * FROM products WHERE id = :id;"),
+            {"id": product_id},
+        ).first()
+
+    if product is None:
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    _, extension = os.path.splitext(file.filename or "")
+    extension = extension.lower()
+
+    if extension not in ALLOWED_IMAGE_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail="Image must be a JPG, PNG, WebP, or GIF file",
+        )
+
+    if not file.content_type or not file.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="Uploaded file must be an image")
+
+    contents = await file.read()
+
+    if len(contents) > MAX_IMAGE_BYTES:
+        raise HTTPException(status_code=400, detail="Image must be 5 MB or smaller")
+
+    filename = f"product-{product_id}-gallery-{uuid.uuid4().hex}{extension}"
+    disk_path = os.path.join(PRODUCT_UPLOAD_DIR, filename)
+    image_url = f"/uploads/products/{filename}"
+
+    with open(disk_path, "wb") as image_file:
+        image_file.write(contents)
+
+    with engine.begin() as conn:
+        result = conn.execute(
+            text(
+                """
+                INSERT INTO product_images (product_id, image_url)
+                VALUES (:product_id, :image_url)
+                RETURNING *;
+                """
+            ),
+            {"product_id": product_id, "image_url": image_url},
+        ).first()
+
+    return dict(result._mapping)
+
+
+@app.delete("/product-images/{image_id}")
+def delete_product_gallery_image(image_id: int):
+    with engine.begin() as conn:
+        result = conn.execute(
+            text(
+                """
+                DELETE FROM product_images
+                WHERE id = :id
+                RETURNING *;
+                """
+            ),
+            {"id": image_id},
+        ).first()
+
+    if result is None:
+        raise HTTPException(status_code=404, detail="Product image not found")
+
+    return {"deleted": True, "image": dict(result._mapping)}
 
 
 @app.post("/sales")
