@@ -7,10 +7,11 @@ import hashlib
 import json
 import zipfile
 import shutil
-from datetime import datetime
+from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal, ROUND_HALF_UP
 from io import BytesIO
 from typing import Literal, Optional, List
+from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, Response, UploadFile
 from fastapi.responses import JSONResponse
@@ -26,6 +27,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 app = FastAPI(title="POS API")
+
+STORE_TIMEZONE = ZoneInfo(os.getenv("STORE_TIMEZONE", "America/New_York"))
 
 app.add_middleware(
     CORSMiddleware,
@@ -167,6 +170,30 @@ def calculate_tax_cents(amount_cents, tax_rate_percent):
         rounding=ROUND_HALF_UP,
     )
     return int(tax)
+
+
+def local_today():
+    return datetime.now(STORE_TIMEZONE).date()
+
+
+def parse_local_date(value):
+    if isinstance(value, date):
+        return value
+    return datetime.strptime(value, "%Y-%m-%d").date()
+
+
+def local_date_bounds(start_date, end_date=None):
+    start_day = parse_local_date(start_date)
+    end_day = parse_local_date(end_date or start_date)
+    if end_day < start_day:
+        raise HTTPException(status_code=400, detail="End date must be after start date")
+
+    local_start = datetime.combine(start_day, time.min, tzinfo=STORE_TIMEZONE)
+    local_end = datetime.combine(end_day + timedelta(days=1), time.min, tzinfo=STORE_TIMEZONE)
+    return (
+        local_start.astimezone(timezone.utc).replace(tzinfo=None),
+        local_end.astimezone(timezone.utc).replace(tzinfo=None),
+    )
 
 
 def calculate_rounding_adjustment_cents(total_cents, rounding_mode):
@@ -466,6 +493,7 @@ class SaleCreate(BaseModel):
     items: List[SaleItemCreate]
     customer_name: Optional[str] = None
     payment_type: Optional[Literal["cash", "card", "other"]] = None
+    sale_source: Optional[Literal["pos", "mobile_pos"]] = "pos"
 
 
 class AdminLogin(BaseModel):
@@ -563,6 +591,7 @@ def ensure_event_table():
         conn.execute(text("ALTER TABLE sales ADD COLUMN IF NOT EXISTS tax_cents INTEGER NOT NULL DEFAULT 0;"))
         conn.execute(text("ALTER TABLE sales ADD COLUMN IF NOT EXISTS tax_rate_percent NUMERIC(8, 3) NOT NULL DEFAULT 0;"))
         conn.execute(text("ALTER TABLE sales ADD COLUMN IF NOT EXISTS rounding_adjustment_cents INTEGER NOT NULL DEFAULT 0;"))
+        conn.execute(text("ALTER TABLE sales ADD COLUMN IF NOT EXISTS sale_source TEXT NOT NULL DEFAULT 'pos';"))
         conn.execute(
             text(
                 """
@@ -726,6 +755,7 @@ def ensure_event_table():
                 text(
                     """
                     INSERT INTO sales (
+                        sale_source,
                         subtotal_cents,
                         tax_cents,
                         tax_rate_percent,
@@ -734,6 +764,7 @@ def ensure_event_table():
                         created_at
                     )
                     VALUES (
+                        :sale_source,
                         :subtotal_cents,
                         :tax_cents,
                         :tax_rate_percent,
@@ -745,6 +776,7 @@ def ensure_event_table():
                     """
                 ),
                 {
+                    "sale_source": "online",
                     "subtotal_cents": order_data.get("subtotal_cents") or order_data["total_cents"],
                     "tax_cents": order_data.get("tax_cents") or 0,
                     "tax_rate_percent": order_data.get("tax_rate_percent") or 0,
@@ -935,6 +967,7 @@ def get_store_qr_code(url: Optional[str] = None):
 
 @app.get("/reports/tax-summary.pdf")
 def download_tax_summary_report(start_date: str, end_date: str):
+    range_start, range_end = local_date_bounds(start_date, end_date)
     with engine.connect() as conn:
         summary = conn.execute(
             text(
@@ -947,18 +980,22 @@ def download_tax_summary_report(start_date: str, end_date: str):
                     COALESCE(SUM(sales.total_cents), 0) AS gross_receipts_cents
                 FROM sales
                 LEFT JOIN online_orders ON online_orders.sale_id = sales.id
-                WHERE sales.created_at >= CAST(:start_date AS date)
-                  AND sales.created_at < (CAST(:end_date AS date) + INTERVAL '1 day');
+                WHERE sales.created_at >= :range_start
+                  AND sales.created_at < :range_end;
                 """
             ),
-            {"start_date": start_date, "end_date": end_date},
+            {"range_start": range_start, "range_end": range_end},
         ).first()
 
         by_type = conn.execute(
             text(
                 """
                 SELECT
-                    CASE WHEN online_orders.id IS NULL THEN 'POS' ELSE 'Online' END AS sale_type,
+                    CASE
+                        WHEN online_orders.id IS NOT NULL THEN 'Online'
+                        WHEN COALESCE(sales.sale_source, 'pos') = 'mobile_pos' THEN 'Mobile POS'
+                        ELSE 'POS'
+                    END AS sale_type,
                     COUNT(*) AS transaction_count,
                     COALESCE(SUM(COALESCE(sales.subtotal_cents, sales.total_cents)), 0) AS taxable_sales_cents,
                     COALESCE(SUM(sales.tax_cents), 0) AS tax_collected_cents,
@@ -966,13 +1003,13 @@ def download_tax_summary_report(start_date: str, end_date: str):
                     COALESCE(SUM(sales.total_cents), 0) AS gross_receipts_cents
                 FROM sales
                 LEFT JOIN online_orders ON online_orders.sale_id = sales.id
-                WHERE sales.created_at >= CAST(:start_date AS date)
-                  AND sales.created_at < (CAST(:end_date AS date) + INTERVAL '1 day')
+                WHERE sales.created_at >= :range_start
+                  AND sales.created_at < :range_end
                 GROUP BY sale_type
                 ORDER BY sale_type;
                 """
             ),
-            {"start_date": start_date, "end_date": end_date},
+            {"range_start": range_start, "range_end": range_end},
         )
 
         by_rate = conn.execute(
@@ -984,13 +1021,13 @@ def download_tax_summary_report(start_date: str, end_date: str):
                     COALESCE(SUM(COALESCE(sales.subtotal_cents, sales.total_cents)), 0) AS taxable_sales_cents,
                     COALESCE(SUM(sales.tax_cents), 0) AS tax_collected_cents
                 FROM sales
-                WHERE sales.created_at >= CAST(:start_date AS date)
-                  AND sales.created_at < (CAST(:end_date AS date) + INTERVAL '1 day')
+                WHERE sales.created_at >= :range_start
+                  AND sales.created_at < :range_end
                 GROUP BY tax_rate_percent
                 ORDER BY tax_rate_percent;
                 """
             ),
-            {"start_date": start_date, "end_date": end_date},
+            {"range_start": range_start, "range_end": range_end},
         )
 
     buffer = BytesIO()
@@ -1162,7 +1199,11 @@ def export_sales():
                 """
                 SELECT
                     sales.*,
-                    CASE WHEN online_orders.id IS NULL THEN 'POS' ELSE 'Online' END AS sale_type,
+                    CASE
+                        WHEN online_orders.id IS NOT NULL THEN 'Online'
+                        WHEN COALESCE(sales.sale_source, 'pos') = 'mobile_pos' THEN 'Mobile POS'
+                        ELSE 'POS'
+                    END AS sale_type,
                     COALESCE(
                         sales.customer_name,
                         online_orders.customer_name,
@@ -1732,6 +1773,7 @@ def create_store_order(order: OnlineOrderCreate):
                 INSERT INTO sales (
                     customer_name,
                     payment_type,
+                    sale_source,
                     subtotal_cents,
                     tax_cents,
                     tax_rate_percent,
@@ -1741,6 +1783,7 @@ def create_store_order(order: OnlineOrderCreate):
                 VALUES (
                     :customer_name,
                     :payment_type,
+                    :sale_source,
                     :subtotal_cents,
                     :tax_cents,
                     :tax_rate_percent,
@@ -1753,6 +1796,7 @@ def create_store_order(order: OnlineOrderCreate):
             {
                 "customer_name": order.customer_name,
                 "payment_type": order.payment_provider,
+                "sale_source": "online",
                 "subtotal_cents": subtotal_cents,
                 "tax_cents": tax_cents,
                 "tax_rate_percent": tax_rate_percent,
@@ -2701,6 +2745,7 @@ def get_products_by_category(category: str):
 
 @app.get("/dashboard")
 def get_dashboard():
+    today_start, today_end = local_date_bounds(local_today())
     with engine.connect() as conn:
         product_summary = conn.execute(
             text(
@@ -2724,9 +2769,14 @@ def get_dashboard():
                     COUNT(*) AS today_sale_count,
                     COALESCE(SUM(total_cents), 0) AS today_revenue_cents
                 FROM sales
-                WHERE created_at::date = CURRENT_DATE;
+                WHERE created_at >= :today_start
+                  AND created_at < :today_end;
                 """
-            )
+            ),
+            {
+                "today_start": today_start,
+                "today_end": today_end,
+            },
         ).first()
 
         online_order_summary = conn.execute(
@@ -2802,16 +2852,22 @@ def get_sales():
 
 @app.get("/sales/today")
 def get_today_sales():
+    today_start, today_end = local_date_bounds(local_today())
     with engine.connect() as conn:
         sales = conn.execute(
             text(
                 """
                 SELECT *
                 FROM sales
-                WHERE created_at::date = CURRENT_DATE
+                WHERE created_at >= :today_start
+                  AND created_at < :today_end
                 ORDER BY created_at DESC;
                 """
-            )
+            ),
+            {
+                "today_start": today_start,
+                "today_end": today_end,
+            },
         )
 
         summary = conn.execute(
@@ -2821,18 +2877,31 @@ def get_today_sales():
                     COUNT(*) AS sale_count,
                     COALESCE(SUM(total_cents), 0) AS total_cents
                 FROM sales
-                WHERE created_at::date = CURRENT_DATE;
+                WHERE created_at >= :today_start
+                  AND created_at < :today_end;
                 """
-            )
+            ),
+            {
+                "today_start": today_start,
+                "today_end": today_end,
+            },
         ).first()
 
         return {
             "summary": dict(summary._mapping),
             "sales": [dict(row._mapping) for row in sales],
+            "range": {
+                "start_date": start_date,
+                "end_date": end_date,
+                "timezone": str(STORE_TIMEZONE),
+                "start": range_start.isoformat(sep=" "),
+                "end": range_end.isoformat(sep=" "),
+            },
         }
 
 @app.get("/sales/range")
 def get_sales_range(start_date: str, end_date: str):
+    range_start, range_end = local_date_bounds(start_date, end_date)
     with engine.connect() as conn:
         sales = conn.execute(
             text(
@@ -2845,17 +2914,22 @@ def get_sales_range(start_date: str, end_date: str):
                         online_orders.shipping_name
                     ) AS display_customer_name,
                     online_orders.id AS online_order_id,
-                    online_orders.status AS online_order_status
+                    online_orders.status AS online_order_status,
+                    CASE
+                        WHEN online_orders.id IS NOT NULL THEN 'Online'
+                        WHEN COALESCE(sales.sale_source, 'pos') = 'mobile_pos' THEN 'Mobile POS'
+                        ELSE 'POS'
+                    END AS sale_type
                 FROM sales
                 LEFT JOIN online_orders ON online_orders.sale_id = sales.id
-                WHERE sales.created_at >= :start_date
-                  AND sales.created_at < (CAST(:end_date AS date) + INTERVAL '1 day')
+                WHERE sales.created_at >= :range_start
+                  AND sales.created_at < :range_end
                 ORDER BY sales.created_at DESC;
                 """
             ),
             {
-                "start_date": start_date,
-                "end_date": end_date,
+                "range_start": range_start,
+                "range_end": range_end,
             },
         )
 
@@ -2866,13 +2940,13 @@ def get_sales_range(start_date: str, end_date: str):
                     COUNT(*) AS sale_count,
                     COALESCE(SUM(total_cents), 0) AS total_cents
                 FROM sales
-                WHERE created_at >= :start_date
-                  AND created_at < (CAST(:end_date AS date) + INTERVAL '1 day');
+                WHERE created_at >= :range_start
+                  AND created_at < :range_end;
                 """
             ),
             {
-                "start_date": start_date,
-                "end_date": end_date,
+                "range_start": range_start,
+                "range_end": range_end,
             },
         ).first()
 
@@ -2929,7 +3003,8 @@ def search_sales(query: str, field: str = "all"):
         "type": """
             (
                 (:query_lower = 'online' AND online_orders.id IS NOT NULL)
-                OR (:query_lower = 'pos' AND online_orders.id IS NULL)
+                OR (:query_lower = 'pos' AND online_orders.id IS NULL AND COALESCE(sales.sale_source, 'pos') <> 'mobile_pos')
+                OR (:query_lower IN ('mobile', 'mobile pos', 'mobile_pos') AND COALESCE(sales.sale_source, 'pos') = 'mobile_pos')
             )
         """,
         "product": """
@@ -2960,7 +3035,12 @@ def search_sales(query: str, field: str = "all"):
                         online_orders.shipping_name
                     ) AS display_customer_name,
                     online_orders.id AS online_order_id,
-                    online_orders.status AS online_order_status
+                    online_orders.status AS online_order_status,
+                    CASE
+                        WHEN online_orders.id IS NOT NULL THEN 'Online'
+                        WHEN COALESCE(sales.sale_source, 'pos') = 'mobile_pos' THEN 'Mobile POS'
+                        ELSE 'POS'
+                    END AS sale_type
                 FROM sales
                 LEFT JOIN online_orders ON online_orders.sale_id = sales.id
                 WHERE {where_clause}
@@ -2990,7 +3070,20 @@ def search_sales(query: str, field: str = "all"):
 def get_sale(sale_id: int):
     with engine.connect() as conn:
         sale = conn.execute(
-            text("SELECT * FROM sales WHERE id = :id;"),
+            text(
+                """
+                SELECT
+                    sales.*,
+                    CASE
+                        WHEN online_orders.id IS NOT NULL THEN 'Online'
+                        WHEN COALESCE(sales.sale_source, 'pos') = 'mobile_pos' THEN 'Mobile POS'
+                        ELSE 'POS'
+                    END AS sale_type
+                FROM sales
+                LEFT JOIN online_orders ON online_orders.sale_id = sales.id
+                WHERE sales.id = :id;
+                """
+            ),
             {"id": sale_id},
         ).first()
 
@@ -3420,6 +3513,7 @@ def create_sale(sale: SaleCreate):
                 INSERT INTO sales (
                     customer_name,
                     payment_type,
+                    sale_source,
                     subtotal_cents,
                     tax_cents,
                     tax_rate_percent,
@@ -3430,6 +3524,7 @@ def create_sale(sale: SaleCreate):
                 VALUES (
                     :customer_name,
                     :payment_type,
+                    :sale_source,
                     :subtotal_cents,
                     :tax_cents,
                     :tax_rate_percent,
@@ -3443,6 +3538,7 @@ def create_sale(sale: SaleCreate):
             {
                 "customer_name": sale.customer_name.strip() if sale.customer_name else None,
                 "payment_type": sale.payment_type or "cash",
+                "sale_source": sale.sale_source or "pos",
                 "subtotal_cents": subtotal_cents,
                 "tax_cents": tax_cents,
                 "tax_rate_percent": tax_rate_percent,

@@ -10,7 +10,12 @@ function Settings() {
     store_url: "http://100.85.171.19:5173/store",
     pos_rounding_mode: "none",
   });
-  const today = new Date().toISOString().split("T")[0];
+  function localDateInputValue(value = new Date()) {
+    const offsetDate = new Date(value.getTime() - value.getTimezoneOffset() * 60000);
+    return offsetDate.toISOString().split("T")[0];
+  }
+
+  const today = localDateInputValue();
   const [reportRange, setReportRange] = useState({
     start_date: today,
     end_date: today,

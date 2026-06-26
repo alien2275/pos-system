@@ -6,7 +6,12 @@ function Sales() {
   const [salesData, setSalesData] = useState(null);
   const [selectedSale, setSelectedSale] = useState(null);
 
-  const today = new Date().toISOString().split("T")[0];
+  function localDateInputValue(value = new Date()) {
+    const offsetDate = new Date(value.getTime() - value.getTimezoneOffset() * 60000);
+    return offsetDate.toISOString().split("T")[0];
+  }
+
+  const today = localDateInputValue();
 
   const [startDate, setStartDate] = useState(today);
   const [endDate, setEndDate] = useState(today);
@@ -80,6 +85,18 @@ function Sales() {
 
   function formatMoney(cents) {
     return `$${(Number(cents || 0) / 100).toFixed(2)}`;
+  }
+
+  function saleTypeLabel(sale, onlineOrder = null) {
+    if (sale.sale_type) {
+      return sale.sale_type;
+    }
+
+    if (onlineOrder || sale.online_order_id) {
+      return "Online";
+    }
+
+    return sale.sale_source === "mobile_pos" ? "Mobile POS" : "POS";
   }
 
   function printSaleReceipt(mode) {
@@ -261,7 +278,7 @@ function Sales() {
                   : ""
               }
               <p><strong>Type:</strong> ${escapeHtml(
-                onlineOrder ? "Online" : "POS"
+                saleTypeLabel(sale, onlineOrder)
               )}</p>
               <p><strong>Payment:</strong> ${escapeHtml(paymentType)}</p>
               ${trackingLine}
@@ -304,6 +321,64 @@ function Sales() {
       </html>
     `);
     printWindow.document.close();
+  }
+
+  function encodeBase64Url(value) {
+    const bytes = new TextEncoder().encode(value);
+    let binary = "";
+    bytes.forEach((byte) => {
+      binary += String.fromCharCode(byte);
+    });
+
+    return btoa(binary)
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/g, "");
+  }
+
+  function buildReceiptPayload() {
+    const sale = selectedSale.sale;
+    const onlineOrder = selectedSale.online_order;
+    const orderNumber = sale.order_number || sale.id;
+    const customerName =
+      sale.customer_name || onlineOrder?.customer_name || "";
+    const subtotalCents = sale.subtotal_cents || sale.total_cents;
+    const paymentType = sale.payment_type || (onlineOrder ? "online" : "pos");
+    const tracking =
+      onlineOrder?.carrier && onlineOrder?.tracking_id
+        ? `${onlineOrder.carrier} ${onlineOrder.tracking_id}`
+        : "";
+
+    return {
+      storeName: "sammyinthesky",
+      tagline: "Handmade Jewelry & Crafts",
+      orderNumber: String(orderNumber),
+      createdAt: sale.created_at,
+      customerName,
+      type: saleTypeLabel(sale, onlineOrder),
+      paymentType,
+      tracking,
+      subtotalCents,
+      taxCents: sale.tax_cents || 0,
+      roundingAdjustmentCents: sale.rounding_adjustment_cents || 0,
+      totalCents: sale.total_cents,
+      items: selectedSale.items.map((item) => ({
+        name: item.name,
+        quantity: item.quantity,
+        priceCents: item.price_cents,
+      })),
+      footer: "Thank you!",
+    };
+  }
+
+  function printAndroidReceipt() {
+    if (!selectedSale) {
+      return;
+    }
+
+    const payload = encodeBase64Url(JSON.stringify(buildReceiptPayload()));
+    const callback = encodeURIComponent(window.location.href.split("#")[0]);
+    window.location.href = `posprint://receipt?payload=${payload}&callback=${callback}`;
   }
 
   return (
@@ -409,7 +484,7 @@ function Sales() {
                   {salesData.sales.map((sale) => (
                     <tr key={sale.id}>
                       <td>{sale.order_number || sale.id}</td>
-                      <td>{sale.online_order_id ? "Online" : "POS"}</td>
+                      <td>{saleTypeLabel(sale)}</td>
                       <td>{sale.display_customer_name || sale.customer_name || "-"}</td>
                       <td>{sale.created_at}</td>
                       <td>${(sale.total_cents / 100).toFixed(2)}</td>
@@ -463,7 +538,10 @@ function Sales() {
               Print A4 Receipt
             </button>
             <button onClick={() => printSaleReceipt("thermal")}>
-              Print Thermal Receipt
+              Browser Thermal Receipt
+            </button>
+            <button onClick={printAndroidReceipt}>
+              Android Bluetooth Receipt
             </button>
           </div>
 

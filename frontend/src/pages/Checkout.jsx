@@ -166,6 +166,7 @@ function Checkout() {
       body: JSON.stringify({
         customer_name: customerName || null,
         payment_type: paymentType,
+        sale_source: "pos",
         items: cart.map((item) => ({
           product_id: item.id,
           quantity: item.quantity,
@@ -249,6 +250,58 @@ function Checkout() {
     window.location.href = `mailto:?subject=${subject}&body=${body}`;
   }
 
+  function encodeBase64Url(value) {
+    const bytes = new TextEncoder().encode(value);
+    let binary = "";
+    bytes.forEach((byte) => {
+      binary += String.fromCharCode(byte);
+    });
+
+    return btoa(binary)
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/g, "");
+  }
+
+  function printAndroidReceipt() {
+    if (!lastSale) {
+      return;
+    }
+
+    const payload = {
+      storeName: "sammyinthesky",
+      tagline: "Handmade Jewelry & Crafts",
+      orderNumber: String(lastSale.order_number || lastSale.id),
+      createdAt: "",
+      customerName: lastSale.customer_name || "",
+      type: "POS",
+      paymentType: lastSale.paymentType,
+      subtotalCents: lastSale.subtotal_cents,
+      taxCents: lastSale.tax_cents,
+      roundingAdjustmentCents: lastSale.rounding_adjustment_cents || 0,
+      totalCents: lastSale.total_cents,
+      cashReceivedCents:
+        lastSale.paymentType === "cash"
+          ? Math.round(Number(lastSale.cashReceived || 0) * 100)
+          : 0,
+      changeDueCents:
+        lastSale.paymentType === "cash"
+          ? Math.round(Number(lastSale.changeDue || 0) * 100)
+          : 0,
+      storeUrl: settings.store_url || "",
+      items: lastSale.items.map((item) => ({
+        name: item.name,
+        quantity: item.quantity,
+        priceCents: item.price_cents,
+      })),
+      footer: "Thank you!",
+    };
+
+    const encodedPayload = encodeBase64Url(JSON.stringify(payload));
+    const callback = encodeURIComponent(window.location.href.split("#")[0]);
+    window.location.href = `posprint://receipt?payload=${encodedPayload}&callback=${callback}`;
+  }
+
   return (
     <div className="admin-page checkout-page">
       {!lastSale && (
@@ -266,6 +319,7 @@ function Checkout() {
 
           <div className="button-row receipt-actions no-print">
             <button onClick={() => window.print()}>Print Receipt</button>
+            <button onClick={printAndroidReceipt}>Android Bluetooth Receipt</button>
             <button onClick={emailReceipt}>Email Receipt</button>
 
             <button
