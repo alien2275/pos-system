@@ -3,6 +3,7 @@ import { API_URL, apiFetch } from "../config";
 
 function Settings() {
   const [form, setForm] = useState({
+    tax_enabled: true,
     tax_state: "MD",
     tax_rate_percent: "6.00",
     flat_shipping: "6.00",
@@ -24,6 +25,7 @@ function Settings() {
       .then((res) => res.json())
       .then((data) => {
         setForm({
+          tax_enabled: data.tax_enabled !== false,
           tax_state: data.tax_state || "MD",
           tax_rate_percent: data.tax_rate_percent || "6.00",
           flat_shipping: ((data.flat_shipping_cents || 0) / 100).toFixed(2),
@@ -35,10 +37,10 @@ function Settings() {
   }, []);
 
   function updateField(event) {
-    const { name, value } = event.target;
+    const { checked, name, type, value } = event.target;
     setForm({
       ...form,
-      [name]: value,
+      [name]: type === "checkbox" ? checked : value,
     });
   }
 
@@ -52,6 +54,7 @@ function Settings() {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
+        tax_enabled: form.tax_enabled,
         tax_state: form.tax_state,
         tax_rate_percent: Number(form.tax_rate_percent || 0),
         flat_shipping_cents: Math.round(Number(form.flat_shipping || 0) * 100),
@@ -68,6 +71,7 @@ function Settings() {
     }
 
     setForm({
+      tax_enabled: data.tax_enabled !== false,
       tax_state: data.tax_state,
       tax_rate_percent: data.tax_rate_percent,
       flat_shipping: (data.flat_shipping_cents / 100).toFixed(2),
@@ -150,6 +154,16 @@ function Settings() {
 
         <form className="admin-form settings-form" onSubmit={saveSettings}>
           <div className="form-grid">
+            <label className="form-full checkbox-label">
+              <input
+                name="tax_enabled"
+                type="checkbox"
+                checked={form.tax_enabled}
+                onChange={updateField}
+              />
+              Enable sales tax at checkout
+            </label>
+
             <label>
               Tax State
               <input

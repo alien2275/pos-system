@@ -68,6 +68,7 @@ ADMIN_COOKIE_NAME = "pos_admin_session"
 
 
 DEFAULT_SETTINGS = {
+    "tax_enabled": "true",
     "tax_state": "MD",
     "tax_rate_percent": "6.00",
     "flat_shipping_cents": "600",
@@ -145,10 +146,12 @@ def get_app_settings(conn):
     settings = DEFAULT_SETTINGS.copy()
     settings.update({row._mapping["key"]: row._mapping["value"] for row in rows})
 
+    tax_enabled = str(settings["tax_enabled"]).lower() in {"1", "true", "yes", "on"}
     tax_rate = Decimal(settings["tax_rate_percent"])
     flat_shipping_cents = int(settings["flat_shipping_cents"])
 
     return {
+        "tax_enabled": tax_enabled,
         "tax_state": settings["tax_state"],
         "tax_rate_percent": str(tax_rate.quantize(Decimal("0.01"))),
         "flat_shipping_cents": flat_shipping_cents,
@@ -471,6 +474,7 @@ class AdminLogin(BaseModel):
 
 
 class AppSettingsUpdate(BaseModel):
+    tax_enabled: Optional[bool] = None
     tax_state: Optional[str] = None
     tax_rate_percent: Optional[Decimal] = None
     flat_shipping_cents: Optional[int] = None
@@ -855,6 +859,9 @@ def update_settings(settings_update: AppSettingsUpdate):
         if tax_rate < 0 or tax_rate > 25:
             raise HTTPException(status_code=400, detail="Tax rate must be between 0 and 25")
         fields["tax_rate_percent"] = str(tax_rate.quantize(Decimal("0.01")))
+
+    if "tax_enabled" in fields:
+        fields["tax_enabled"] = "true" if fields["tax_enabled"] else "false"
 
     if "flat_shipping_cents" in fields and fields["flat_shipping_cents"] < 0:
         raise HTTPException(status_code=400, detail="Flat shipping cannot be negative")
@@ -1653,7 +1660,12 @@ def create_store_order(order: OnlineOrderCreate):
             )
 
         shipping_cents = settings["flat_shipping_cents"]
-        tax_cents = calculate_tax_cents(subtotal_cents, settings["tax_rate_percent"])
+        tax_cents = (
+            calculate_tax_cents(subtotal_cents, settings["tax_rate_percent"])
+            if settings["tax_enabled"]
+            else 0
+        )
+        tax_rate_percent = settings["tax_rate_percent"] if settings["tax_enabled"] else 0
         total_cents = subtotal_cents + tax_cents + shipping_cents
 
         order_row = conn.execute(
@@ -1707,7 +1719,7 @@ def create_store_order(order: OnlineOrderCreate):
                 "subtotal_cents": subtotal_cents,
                 "tax_cents": tax_cents,
                 "shipping_cents": shipping_cents,
-                "tax_rate_percent": settings["tax_rate_percent"],
+                "tax_rate_percent": tax_rate_percent,
                 "total_cents": total_cents,
             },
         ).first()
@@ -1743,7 +1755,7 @@ def create_store_order(order: OnlineOrderCreate):
                 "payment_type": order.payment_provider,
                 "subtotal_cents": subtotal_cents,
                 "tax_cents": tax_cents,
-                "tax_rate_percent": settings["tax_rate_percent"],
+                "tax_rate_percent": tax_rate_percent,
                 "total_cents": total_cents,
                 "order_number": order_number,
             },
@@ -3389,7 +3401,12 @@ def create_sale(sale: SaleCreate):
                 "name": product_data["name"],
             })
 
-        tax_cents = calculate_tax_cents(subtotal_cents, settings["tax_rate_percent"])
+        tax_cents = (
+            calculate_tax_cents(subtotal_cents, settings["tax_rate_percent"])
+            if settings["tax_enabled"]
+            else 0
+        )
+        tax_rate_percent = settings["tax_rate_percent"] if settings["tax_enabled"] else 0
         unrounded_total_cents = subtotal_cents + tax_cents
         rounding_adjustment_cents = calculate_rounding_adjustment_cents(
             unrounded_total_cents,
@@ -3428,7 +3445,7 @@ def create_sale(sale: SaleCreate):
                 "payment_type": sale.payment_type or "cash",
                 "subtotal_cents": subtotal_cents,
                 "tax_cents": tax_cents,
-                "tax_rate_percent": settings["tax_rate_percent"],
+                "tax_rate_percent": tax_rate_percent,
                 "rounding_adjustment_cents": rounding_adjustment_cents,
                 "total_cents": total_cents,
                 "order_number": generate_order_number(conn),

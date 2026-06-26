@@ -38,6 +38,7 @@ function Checkout() {
   const [paymentType, setPaymentType] = useState("cash");
   const [lastSale, setLastSale] = useState(null);
   const [settings, setSettings] = useState({
+    tax_enabled: true,
     tax_state: "MD",
     tax_rate_percent: "6.00",
     flat_shipping_cents: 0,
@@ -127,8 +128,9 @@ function Checkout() {
     (sum, item) => sum + item.price_cents * item.quantity,
     0
   );
+  const taxEnabled = settings.tax_enabled !== false;
   const taxRate = Number(settings.tax_rate_percent || 0);
-  const tax = Math.round(subtotal * (taxRate / 100));
+  const tax = taxEnabled ? Math.round(subtotal * (taxRate / 100)) : 0;
   const unroundedTotal = subtotal + tax;
   const roundingAdjustment = calculateRoundingAdjustment(
     unroundedTotal,
@@ -224,7 +226,9 @@ function Checkout() {
         `Order ${lastSale.order_number || lastSale.id}\n\n` +
         itemLines +
         `\n\nSubtotal: $${(lastSale.subtotal_cents / 100).toFixed(2)}\n` +
-        `Tax: $${(lastSale.tax_cents / 100).toFixed(2)}\n` +
+        (Number(lastSale.tax_cents || 0) > 0
+          ? `Tax: $${(lastSale.tax_cents / 100).toFixed(2)}\n`
+          : "") +
         (Number(lastSale.rounding_adjustment_cents || 0) !== 0
           ? `Rounding: ${formatSignedMoney(
               lastSale.rounding_adjustment_cents
@@ -304,10 +308,12 @@ function Checkout() {
               <span>${(lastSale.subtotal_cents / 100).toFixed(2)}</span>
             </div>
 
-            <div>
-              <span>Tax</span>
-              <span>${(lastSale.tax_cents / 100).toFixed(2)}</span>
-            </div>
+            {Number(lastSale.tax_cents || 0) > 0 && (
+              <div>
+                <span>Tax</span>
+                <span>${(lastSale.tax_cents / 100).toFixed(2)}</span>
+              </div>
+            )}
 
             {Number(lastSale.rounding_adjustment_cents || 0) !== 0 && (
               <div>
@@ -430,9 +436,11 @@ function Checkout() {
             <span>Total</span>
             <strong>${(total / 100).toFixed(2)}</strong>
             <p>Subtotal: ${(subtotal / 100).toFixed(2)}</p>
-            <p>
-              Tax ({settings.tax_state} {taxRate.toFixed(2)}%): ${(tax / 100).toFixed(2)}
-            </p>
+            {taxEnabled && (
+              <p>
+                Tax ({settings.tax_state} {taxRate.toFixed(2)}%): ${(tax / 100).toFixed(2)}
+              </p>
+            )}
             {roundingAdjustment !== 0 && (
               <p>Rounding: {formatSignedMoney(roundingAdjustment)}</p>
             )}

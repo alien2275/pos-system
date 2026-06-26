@@ -43,6 +43,7 @@ function StoreProducts() {
   const [lastAddedProductId, setLastAddedProductId] = useState(null);
   const [galleryModal, setGalleryModal] = useState(null);
   const [settings, setSettings] = useState({
+    tax_enabled: true,
     tax_state: "MD",
     tax_rate_percent: "6.00",
     flat_shipping_cents: 0,
@@ -190,9 +191,10 @@ function StoreProducts() {
     0
   );
   const cartItemCount = cart.reduce((sum, item) => sum + item.quantity, 0);
+  const taxEnabled = settings.tax_enabled !== false;
   const taxRate = Number(settings.tax_rate_percent || 0);
   const shippingCents = cart.length > 0 ? settings.flat_shipping_cents : 0;
-  const taxCents = Math.round(cartSubtotal * (taxRate / 100));
+  const taxCents = taxEnabled ? Math.round(cartSubtotal * (taxRate / 100)) : 0;
   const cartTotal = cartSubtotal + taxCents + shippingCents;
 
   function scrollToCart() {
@@ -514,10 +516,12 @@ function StoreProducts() {
               <strong>${(cartSubtotal / 100).toFixed(2)}</strong>
             </div>
 
-            <div className="store-cart-total">
-              <span>Tax ({settings.tax_state})</span>
-              <strong>${(taxCents / 100).toFixed(2)}</strong>
-            </div>
+            {taxEnabled && (
+              <div className="store-cart-total">
+                <span>Tax ({settings.tax_state})</span>
+                <strong>${(taxCents / 100).toFixed(2)}</strong>
+              </div>
+            )}
 
             <div className="store-cart-total">
               <span>Shipping</span>

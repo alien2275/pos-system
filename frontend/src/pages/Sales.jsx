@@ -122,6 +122,12 @@ function Sales() {
             sale.rounding_adjustment_cents
           )}</strong></div>`
         : "";
+    const taxLine =
+      Number(sale.tax_cents || 0) > 0
+        ? `<div><span>Tax</span><strong>${formatMoney(
+            sale.tax_cents
+          )}</strong></div>`
+        : "";
 
     const printWindow = window.open("", "_blank", "width=520,height=760");
 
@@ -276,9 +282,7 @@ function Sales() {
               <div><span>Subtotal</span><strong>${formatMoney(
                 subtotalCents
               )}</strong></div>
-              <div><span>Tax</span><strong>${formatMoney(
-                sale.tax_cents
-              )}</strong></div>
+              ${taxLine}
               ${roundingLine}
               <div class="grand-total"><span>Total</span><strong>${formatMoney(
                 sale.total_cents
@@ -494,9 +498,11 @@ function Sales() {
               Subtotal: $
               {((selectedSale.sale.subtotal_cents || selectedSale.sale.total_cents) / 100).toFixed(2)}
             </span>
-            <span>
-              Tax: ${((selectedSale.sale.tax_cents || 0) / 100).toFixed(2)}
-            </span>
+            {Number(selectedSale.sale.tax_cents || 0) > 0 && (
+              <span>
+                Tax: ${((selectedSale.sale.tax_cents || 0) / 100).toFixed(2)}
+              </span>
+            )}
             {Number(selectedSale.sale.rounding_adjustment_cents || 0) !== 0 && (
               <span>
                 Rounding:{" "}
