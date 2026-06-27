@@ -3,58 +3,58 @@ services:
     image: postgres:17
     container_name: pos-postgres
     restart: unless-stopped
+    env_file:
+      - /srv/pos-system/.env
     environment:
-      POSTGRES_DB: pos
-      POSTGRES_USER: Alien2275
-      POSTGRES_PASSWORD: Ak8pch1001a
-      TZ: America/New_York
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      TZ: ${TZ}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
-
-  adminer:
-    image: adminer:latest
-    container_name: pos-adminer
-    restart: unless-stopped
-    ports:
-      - "8080:8080"
-    depends_on:
-      - postgres
+    networks:
+      - pos_internal
 
   backend:
     build:
-      context: ./backend
+      context: ../backend
     container_name: pos-backend
     restart: unless-stopped
+    env_file:
+      - /srv/pos-system/.env
     environment:
-      POSTGRES_DB: pos
-      POSTGRES_USER: Alien2275
-      POSTGRES_PASSWORD: Ak8pch1001a
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_HOST: postgres
-      STORE_TIMEZONE: America/New_York
-      TZ: America/New_York
-      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin}
-      ADMIN_SESSION_SECRET: ${ADMIN_SESSION_SECRET:-change-me-session-secret}
+      STORE_TIMEZONE: ${STORE_TIMEZONE}
+      TZ: ${TZ}
+      ADMIN_USERNAME: ${ADMIN_USERNAME}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      ADMIN_SESSION_SECRET: ${ADMIN_SESSION_SECRET}
     volumes:
-      - ./uploads:/app/uploads
-    ports:
-      - "8000:8000"
+      - ../uploads:/app/uploads
     depends_on:
       - postgres
+    networks:
+      - pos_internal
 
   frontend:
-    image: node:22
+    build:
+      context: ..
+      dockerfile: frontend/Dockerfile
     container_name: pos-frontend
-    working_dir: /app
-    volumes:
-      - ./frontend:/app
+    restart: unless-stopped
     ports:
-      - "5173:5173"
-    command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
+      - "80:80"
     depends_on:
       - backend
+    networks:
+      - pos_internal
 
 volumes:
   postgres_data:
+
+networks:
+  pos_internal:
+    driver: bridge
