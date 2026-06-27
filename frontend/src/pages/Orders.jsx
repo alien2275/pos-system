@@ -166,7 +166,7 @@ function Orders() {
 
         {order.status === "pending_packaging" && (
           <div className="button-row">
-            <Link to={`/orders/${order.id}`}>Details</Link>
+            <Link to={`/admin/orders/${order.id}`}>Details</Link>
             <button onClick={() => markPackaged(order.id)}>
               Mark Packaged
             </button>
@@ -205,7 +205,7 @@ function Orders() {
             </label>
 
             <button type="submit">Mark Shipped</button>
-            <Link to={`/orders/${order.id}`}>Details</Link>
+            <Link to={`/admin/orders/${order.id}`}>Details</Link>
           </form>
         )}
 
@@ -217,7 +217,7 @@ function Orders() {
             <button onClick={() => archiveOrder(order.id)}>
               Archive
             </button>
-            <Link to={`/orders/${order.id}`}>Details</Link>
+            <Link to={`/admin/orders/${order.id}`}>Details</Link>
           </div>
         )}
       </article>

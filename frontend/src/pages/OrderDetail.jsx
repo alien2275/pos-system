@@ -92,7 +92,7 @@ function OrderDetail() {
           <h1>Order {order.order_number || order.id}</h1>
           <p>Review, pack, print, and ship this online order.</p>
         </div>
-        <Link to="/orders">Back To Orders</Link>
+        <Link to="/admin/orders">Back To Orders</Link>
       </header>
 
       <section className="admin-panel no-print">

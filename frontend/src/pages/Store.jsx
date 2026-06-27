@@ -66,7 +66,7 @@ function Store() {
       <section className="store-landing">
         <h1>sammyinthesky</h1>
         <p>Handmade jewelry, stickers, 3D prints, and crafts.</p>
-        <Link className="store-product-link" to="/store/products">
+        <Link className="store-product-link" to="/products">
           View Products
         </Link>
         <div className="store-social-links">

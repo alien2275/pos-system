@@ -42,7 +42,7 @@ function Checkout() {
     tax_state: "MD",
     tax_rate_percent: "6.00",
     flat_shipping_cents: 0,
-    store_url: "http://100.85.171.19:5173/store",
+    store_url: "https://sammyinthesky.art",
     pos_rounding_mode: "none",
   });
 

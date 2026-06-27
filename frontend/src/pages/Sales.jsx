@@ -520,7 +520,7 @@ function Sales() {
             <div className="selected-summary">
               <span>Online Order #{selectedSale.online_order.id}</span>
               <span>Status: {selectedSale.online_order.status}</span>
-              <Link to={`/orders/${selectedSale.online_order.id}`}>
+              <Link to={`/admin/orders/${selectedSale.online_order.id}`}>
                 Order Details
               </Link>
               {selectedSale.online_order.carrier &&

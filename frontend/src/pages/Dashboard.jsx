@@ -60,7 +60,7 @@ function Dashboard() {
       <section className="admin-panel">
         <div className="section-heading">
           <h2>Low Stock Actions</h2>
-          <Link to="/inventory">Open Inventory</Link>
+          <Link to="/admin/inventory">Open Inventory</Link>
         </div>
 
         {!dashboard.low_stock_items || dashboard.low_stock_items.length === 0 ? (

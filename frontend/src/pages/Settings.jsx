@@ -7,7 +7,7 @@ function Settings() {
     tax_state: "MD",
     tax_rate_percent: "6.00",
     flat_shipping: "6.00",
-    store_url: "http://100.85.171.19:5173/store",
+    store_url: "https://sammyinthesky.art",
     pos_rounding_mode: "none",
   });
   function localDateInputValue(value = new Date()) {
@@ -34,7 +34,7 @@ function Settings() {
           tax_state: data.tax_state || "MD",
           tax_rate_percent: data.tax_rate_percent || "6.00",
           flat_shipping: ((data.flat_shipping_cents || 0) / 100).toFixed(2),
-          store_url: data.store_url || "http://100.85.171.19:5173/store",
+          store_url: data.store_url || "https://sammyinthesky.art",
           pos_rounding_mode: data.pos_rounding_mode || "none",
         });
       })
@@ -209,7 +209,7 @@ function Settings() {
                 name="store_url"
                 value={form.store_url}
                 onChange={updateField}
-                placeholder="https://your-store.example.com/store"
+                placeholder="https://sammyinthesky.art"
               />
             </label>
 

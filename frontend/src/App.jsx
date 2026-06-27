@@ -1,4 +1,4 @@
-import { Link, Route, Routes, useLocation } from "react-router-dom";
+import { Link, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { apiFetch } from "./config";
 import Dashboard from "./pages/Dashboard";
@@ -76,14 +76,14 @@ function AdminLogin({ onLogin }) {
 
 function AdminLayout() {
   const navItems = [
-    { to: "/", label: "Dashboard" },
-    { to: "/products", label: "Products" },
-    { to: "/inventory", label: "Inventory" },
-    { to: "/checkout", label: "Checkout" },
-    { to: "/sales", label: "Sales" },
-    { to: "/orders", label: "Orders" },
-    { to: "/events", label: "Events" },
-    { to: "/settings", label: "Settings" },
+    { to: "/admin/dashboard", label: "Dashboard" },
+    { to: "/admin/products", label: "Products" },
+    { to: "/admin/inventory", label: "Inventory" },
+    { to: "/admin/checkout", label: "Checkout" },
+    { to: "/admin/sales", label: "Sales" },
+    { to: "/admin/orders", label: "Orders" },
+    { to: "/admin/events", label: "Events" },
+    { to: "/admin/settings", label: "Settings" },
   ];
 
   async function logout() {
@@ -109,15 +109,16 @@ function AdminLayout() {
 
       <main className="admin-main">
         <Routes>
-          <Route path="/" element={<Dashboard />} />
-          <Route path="/products" element={<Products />} />
-          <Route path="/inventory" element={<Inventory />} />
-          <Route path="/checkout" element={<Checkout />} />
-          <Route path="/sales" element={<Sales />} />
-          <Route path="/orders" element={<Orders />} />
-          <Route path="/orders/:orderId" element={<OrderDetail />} />
-          <Route path="/events" element={<Events />} />
-          <Route path="/settings" element={<Settings />} />
+          <Route path="/admin/dashboard" element={<Dashboard />} />
+          <Route path="/admin/products" element={<Products />} />
+          <Route path="/admin/inventory" element={<Inventory />} />
+          <Route path="/admin/checkout" element={<Checkout />} />
+          <Route path="/admin/sales" element={<Sales />} />
+          <Route path="/admin/orders" element={<Orders />} />
+          <Route path="/admin/orders/:orderId" element={<OrderDetail />} />
+          <Route path="/admin/events" element={<Events />} />
+          <Route path="/admin/settings" element={<Settings />} />
+          <Route path="*" element={<Navigate to="/admin/dashboard" replace />} />
         </Routes>
       </main>
     </div>
@@ -128,8 +129,10 @@ function StoreLayout() {
   return (
     <div className="public-store-shell">
       <Routes>
-        <Route path="/store" element={<Store />} />
-        <Route path="/store/products" element={<StoreProducts />} />
+        <Route path="/" element={<Store />} />
+        <Route path="/products" element={<StoreProducts />} />
+        <Route path="/store" element={<Navigate to="/" replace />} />
+        <Route path="/store/products" element={<Navigate to="/products" replace />} />
       </Routes>
     </div>
   );
@@ -137,11 +140,13 @@ function StoreLayout() {
 
 function App() {
   const location = useLocation();
+  const navigate = useNavigate();
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const isAdminRoute = location.pathname.startsWith("/admin");
 
   useEffect(() => {
-    if (location.pathname.startsWith("/store")) {
+    if (!isAdminRoute) {
       setIsCheckingAuth(false);
       return;
     }
@@ -152,9 +157,14 @@ function App() {
       .then((data) => setIsAuthenticated(data.authenticated))
       .catch((err) => console.error(err))
       .finally(() => setIsCheckingAuth(false));
-  }, [location.pathname]);
+  }, [isAdminRoute]);
 
-  if (location.pathname.startsWith("/store")) {
+  function handleLogin() {
+    setIsAuthenticated(true);
+    navigate("/admin/dashboard", { replace: true });
+  }
+
+  if (!isAdminRoute) {
     return <StoreLayout />;
   }
 
@@ -163,7 +173,15 @@ function App() {
   }
 
   if (!isAuthenticated) {
-    return <AdminLogin onLogin={() => setIsAuthenticated(true)} />;
+    if (location.pathname !== "/admin") {
+      return <Navigate to="/admin" replace />;
+    }
+
+    return <AdminLogin onLogin={handleLogin} />;
+  }
+
+  if (location.pathname === "/admin") {
+    return <Navigate to="/admin/dashboard" replace />;
   }
 
   return <AdminLayout />;
